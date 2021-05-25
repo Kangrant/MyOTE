@@ -3,7 +3,7 @@
 import os
 import pickle
 import numpy as np
-
+from transformers import BertTokenizer
 
 
 class ABSADataReader(object):
@@ -13,6 +13,7 @@ class ABSADataReader(object):
         self.polarity_map = {'N':0, 'NEU':1, 'NEG':2, 'POS':3}  # NO_RELATION is 0
         self.reverse_polarity_map = {v: k for k, v in self.polarity_map.items()}
         self.data_dir = data_dir
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
 
     def get_train(self, tokenizer):
         return self._create_dataset('train', tokenizer)
@@ -46,13 +47,14 @@ class ABSADataReader(object):
 
         for i in range(0, len(lines), 3):
             text = lines[i].strip()
-            # text = ''.join(text.split(' '))
             text = text.split(' ')
+            # text = text.split(' ')
             ap_tags, op_tags = lines[i + 1].strip().split('####')
             ap_tags, op_tags = eval(ap_tags), eval(op_tags)
             pairs = lines[i + 2].strip().split(';')
 
-            seq_len = len(text)
+            text_indices = self.tokenizer.encode(text,add_special_tokens=False,is_split_into_words=True)
+            seq_len = len(text_indices)
             ap_spans = []
             op_spans = []
             triplets = []
@@ -75,7 +77,7 @@ class ABSADataReader(object):
             op_indices = [self.tag_map[tag] for tag in op_tags]
             # data 格式
             data = {
-                'text'    : text,
+                'text_indices'    : text_indices,
                 'ap_indices' : ap_indices,
                 'op_indices' : op_indices,
                 'ap_spans': ap_spans,

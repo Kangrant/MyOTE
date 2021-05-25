@@ -94,8 +94,7 @@ class OTE(nn.Module):
         # output: (last_hidden_state,pooler_output)
         # last_hidden_state:[batch,seq_len,768]    pooler_output:[batch,768]
         output = self.bert(input_ids=text_indices, attention_mask=text_mask)
-        # TODO
-        # 不知是否需要去除CLS和SEP 这里先不去
+
         out = output[0]  # [batch,seq_len,768]
         ap_rep = F.relu(self.ap_fc(out))  # [batch,seq_len,200]
         op_rep = F.relu(self.op_fc(out))  # [batch,seq_len,200]
@@ -129,29 +128,14 @@ class OTE(nn.Module):
         ap_spans = self.aspect_decode(text_indices, ap_tags, self.idx2tag)
         op_spans = self.opinion_decode(text_indices, op_tags, self.idx2tag)
 
-        temp_mask = torch.zeros_like(text_mask).to(self.opt.device)
-        for b in range(batch_size):
-            for i in range(text_len[b]):
-                if i>0 and i < text_len[b]-1:
-                    temp_mask[b][i] = text_mask[b][i]
-        temp_mask = temp_mask[:,1:]
 
-        mat_mask = (temp_mask.unsqueeze(2) * temp_mask.unsqueeze(1)).unsqueeze(3).expand(
+        mat_mask = (text_mask.unsqueeze(2) * text_mask.unsqueeze(1)).unsqueeze(3).expand(
             -1, -1, -1, self.opt.polarities_dim)  # batch x seq x seq x polarity
 
 
-        triplet_out = triplet_out[:,1:,1:,:] * mat_mask.float()
         #triplet_indices->[batch,max_seq_len,max_seq_len,tag_dim]
         triplet_indices = torch.zeros_like(triplet_out).to(self.opt.device)
-        triplet_indices = triplet_indices.scatter_(3, triplet_out.argmax(dim=3, keepdim=True), 1)
-        # triplet_indices = triplet_indices.scatter_(3, triplet_out.argmax(dim=3, keepdim=True), 1) * mat_mask.float()
-        # new_triplet_out = []
-        # for b in range(batch_size):
-        #     length = text_len[b]
-        #     temp = triplet_out[b,:length,:length,:]
-        #     temp = temp[1:-1,1:-1,:].cpu().numpy().tolist()
-        #     new_triplet_out.append(temp)
-        # triplet_out = torch.tensor(new_triplet_out).to(self.opt.device)
+        triplet_indices = triplet_indices.scatter_(3, triplet_out.argmax(dim=3, keepdim=True), 1) * mat_mask.float()
 
 
         triplet_indices = torch.nonzero(triplet_indices).cpu().numpy().tolist()
@@ -191,8 +175,8 @@ class OTE(nn.Module):
                 continue
             _ap_tags = list(map(lambda x: idx2tag[x], ap_tags[b]))
             _op_tags = list(map(lambda x: idx2tag[x], op_tags[b]))
-            ap_beg, ap_end = find_span_with_end(ap_i, text_indices[b], _ap_tags[1:-1], tp='')
-            op_beg, op_end = find_span_with_end(op_i, text_indices[b], _op_tags[1:-1], tp='')
+            ap_beg, ap_end = find_span_with_end(ap_i, text_indices[b], _ap_tags, tp='')
+            op_beg, op_end = find_span_with_end(op_i, text_indices[b], _op_tags, tp='')
             triplet = (ap_beg, ap_end, op_beg, op_end, po)
             result[b].append(triplet)
         return result

@@ -60,14 +60,6 @@ class Instructor:
         for arg in vars(self.opt):
             print('>>> {0}: {1}'.format(arg, getattr(self.opt, arg)))
 
-    def _reset_params(self):
-        for p in self.model.parameters():
-            if p.requires_grad:
-                if len(p.shape) > 1:
-                    self.opt.initializer(p)
-                else:
-                    stdv = 1. / math.sqrt(p.shape[0])
-                    torch.nn.init.uniform_(p, a=-stdv, b=stdv) #均匀分布 U(a,b)
 
     def _train(self, optimizer):
         # if os.path.exists("./temp/model.bin"):
@@ -112,14 +104,14 @@ class Instructor:
                 if global_step % self.opt.log_step == 0:
 
 
-                    start_time=time.time()
+                    # start_time=time.time()
                     dev_ap_metrics, dev_op_metrics, dev_triplet_metrics = self._evaluate(self.dev_data_loader)
-                    end_time = time.time()
+                    # end_time = time.time()
 
                     dev_ap_precision, dev_ap_recall, dev_ap_f1 = dev_ap_metrics
                     dev_op_precision, dev_op_recall, dev_op_f1 = dev_op_metrics
                     dev_triplet_precision, dev_triplet_recall, dev_triplet_f1 = dev_triplet_metrics
-                    print("dev_time:%.2f" % (end_time-start_time))
+                    # print("dev_time:%.2f" % (end_time-start_time))
                     print('dev_ap_precision: {:.4f}, dev_ap_recall: {:.4f}, dev_ap_f1: {:.4f}'.format(dev_ap_precision, dev_ap_recall, dev_ap_f1))
                     print('dev_op_precision: {:.4f}, dev_op_recall: {:.4f}, dev_op_f1: {:.4f}'.format(dev_op_precision, dev_op_recall, dev_op_f1))
                     print('dev_triplet_precision: {:.4f}, dev_triplet_recall: {:.4f}, dev_triplet_f1: {:.4f}'.format( dev_triplet_precision, dev_triplet_recall, dev_triplet_f1))
@@ -136,7 +128,7 @@ class Instructor:
                 continue_not_increase += 1
                 if continue_not_increase >= self.opt.patience:
                     print('early stop.')
-                    break
+                    # break
             else:
                 continue_not_increase = 0
         print("************** Finish train **************")

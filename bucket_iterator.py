@@ -6,6 +6,7 @@ import torch
 import numpy
 from transformers import BertTokenizer
 
+
 class BucketIterator(object):
     def __init__(self, data, batch_size, shuffle=True, sort=True):
         self.shuffle = shuffle
@@ -18,7 +19,7 @@ class BucketIterator(object):
     def sort_and_pad(self, data, batch_size):
         num_batch = int(math.ceil(len(data) / batch_size))
         if self.sort:
-            sorted_data = sorted(data, key=lambda x: len(x['text']))  # 按sequence_len排序
+            sorted_data = sorted(data, key=lambda x: len(x['text_indices']))  # 按sequence_len排序
         else:
             sorted_data = data
         batches = []
@@ -28,7 +29,8 @@ class BucketIterator(object):
 
     @staticmethod
     def pad_data(batch_data,tokenizer):
-
+        batch_text_indices = []
+        batch_text_mask = []
         batch_ap_indices = []
         batch_op_indices = []
         batch_triplet_indices = []
@@ -36,26 +38,23 @@ class BucketIterator(object):
         batch_op_spans = []
         batch_triplets = []
 
-        batch_text_indices,batch_text_mask  = BucketIterator.tokenize(batch_data,tokenizer)
-        max_len = len(batch_text_indices[0])
+        max_len = max([len(t['text_indices']) for t in batch_data])
 
         for item in batch_data:
-            text, ap_indices, op_indices,  ap_spans, op_spans, triplets ,triplet_indices= \
-                item['text'], item['ap_indices'], item['op_indices'],  \
+            text_indices, ap_indices, op_indices,  ap_spans, op_spans, triplets ,triplet_indices= \
+                item['text_indices'], item['ap_indices'], item['op_indices'],  \
                 item['ap_spans'], item['op_spans'], item['triplets'],item['triplet_indices']
 
-            ap_indices = [-100] + ap_indices + [-100]
-            op_indices = [-100] + op_indices + [-100]
-
             # 0-padding because 0 stands for 'O'
-            text_padding = [-100] * (max_len - len(ap_indices))
-
+            text_padding = [0] * (max_len - len(text_indices))
+            batch_text_indices.append(text_indices + text_padding)
+            batch_text_mask.append([1] * len(text_indices) + text_padding)
             batch_ap_indices.append(ap_indices + text_padding)
             batch_op_indices.append(op_indices + text_padding)
 
             batch_triplet_indices.append(
-                numpy.pad(triplet_indices, ((1, max_len - len(ap_indices)+1 ), (1, max_len - len(ap_indices)+1 )),
-                          'constant',constant_values=(-100,-100)))
+                numpy.pad(triplet_indices, ((0, max_len - len(text_indices) ), (0, max_len - len(text_indices) )),
+                          'constant'))
             batch_ap_spans.append(ap_spans)
             batch_op_spans.append(op_spans)
             batch_triplets.append(triplets)
@@ -72,18 +71,7 @@ class BucketIterator(object):
             'triplets': batch_triplets,
 
         }
-    #@staticmethod
-    def tokenize(batch_data,tokenizer):
-        batch_text = []
-        for item in batch_data:
-            text = item['text']
-            batch_text.append(text)
 
-        output = tokenizer(batch_text,is_split_into_words=True,padding=True)
-        text_indices = output['input_ids']
-        text_mask = output['attention_mask']
-
-        return text_indices,text_mask
 
     def __iter__(self):
         if self.shuffle:

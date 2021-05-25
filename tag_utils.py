@@ -21,7 +21,6 @@ def to2bio(tags):
     return new_tags
 
 def bio2bieos(tags):
-    tags = tags[1:-1]
     new_tags = []
     for i, tag in enumerate(tags):
         if tag == 'O':
