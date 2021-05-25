@@ -4,3 +4,4 @@ bert-base-chinese/
 log/
 state_dict/
 temp/model.bin
+hotelDatasets/
