@@ -41,7 +41,7 @@ class Instructor:
                                      opt=opt,
                                      idx2tag=self.idx2tag,
                                      idx2polarity=self.idx2polarity,
-                                     tokenizer=tokenizer).to(opt.device)
+                                     ).to(opt.device)
         self._print_args()
 
         if torch.cuda.is_available():
@@ -105,7 +105,7 @@ class Instructor:
 
 
                     # start_time=time.time()
-                    dev_ap_metrics, dev_op_metrics, dev_triplet_metrics = self._evaluate(self.dev_data_loader)
+                    dev_ap_metrics, dev_op_metrics, dev_triplet_metrics, dev_senPolarity_metrics = self._evaluate(self.dev_data_loader)
                     # end_time = time.time()
 
                     dev_ap_precision, dev_ap_recall, dev_ap_f1 = dev_ap_metrics
@@ -115,7 +115,7 @@ class Instructor:
                     print('dev_ap_precision: {:.4f}, dev_ap_recall: {:.4f}, dev_ap_f1: {:.4f}'.format(dev_ap_precision, dev_ap_recall, dev_ap_f1))
                     print('dev_op_precision: {:.4f}, dev_op_recall: {:.4f}, dev_op_f1: {:.4f}'.format(dev_op_precision, dev_op_recall, dev_op_f1))
                     print('dev_triplet_precision: {:.4f}, dev_triplet_recall: {:.4f}, dev_triplet_f1: {:.4f}'.format( dev_triplet_precision, dev_triplet_recall, dev_triplet_f1))
-
+                    print('dev_senPolarity_acc: {:.4f}'.format(dev_senPolarity_metrics))
                     if dev_triplet_f1 > max_dev_f1:
                         increase_flag = True
                         print("history:%.4f, current:%.4f "%(max_dev_f1,dev_triplet_f1))
@@ -146,13 +146,15 @@ class Instructor:
         with torch.no_grad():
             for t_batch, t_sample_batched in enumerate(data_loader):
                 t_inputs = [t_sample_batched[col].to(self.opt.device) for col in self.opt.input_cols]
-                t_ap_spans, t_op_spans, t_triplets = [t_sample_batched[col] for col in self.opt.eval_cols]
+                t_ap_spans, t_op_spans, t_triplets, t_senPolarity = [t_sample_batched[col] for col in self.opt.eval_cols]
+                t_senPolarity = t_senPolarity.cpu().numpy().tolist()
                 start_time = time.time()
                 with autocast():
                     dev_outpus = self.model(t_inputs)
                 model_time = time.time()-start_time
                 #t_ap_spans_pred, t_op_spans_pred, t_triplets_pred = self.model.inference(t_inputs)
-                t_ap_spans_pred, t_op_spans_pred, t_triplets_pred = self.model.inference(dev_outpus,t_inputs[0],t_inputs[1])
+                t_ap_spans_pred, t_op_spans_pred, t_triplets_pred, t_senPolarity_pred= self.model.inference(dev_outpus,t_inputs[0],t_inputs[1])
+                t_senPolarity_pred = t_senPolarity_pred.cpu().numpy().tolist()
                 infer_time = time.time()-start_time
 
                 print("model_time:%.2f, infer_time:%.2f " %(model_time,infer_time))
@@ -161,22 +163,27 @@ class Instructor:
                     t_ap_spans_all = t_ap_spans
                     t_op_spans_all = t_op_spans
                     t_triplets_all = t_triplets
+                    t_senPolarity_all = t_senPolarity
 
                     t_ap_spans_pred_all = t_ap_spans_pred
                     t_op_spans_pred_all = t_op_spans_pred
                     t_triplets_pred_all = t_triplets_pred
+                    t_senPolarity_pred_all = t_senPolarity_pred
                 else:
                     t_ap_spans_all = t_ap_spans_all + t_ap_spans
                     t_op_spans_all = t_op_spans_all + t_op_spans
-
                     t_triplets_all = t_triplets_all + t_triplets
+                    t_senPolarity_all = t_senPolarity_all + t_senPolarity
+
                     t_ap_spans_pred_all = t_ap_spans_pred_all + t_ap_spans_pred
                     t_op_spans_pred_all = t_op_spans_pred_all + t_op_spans_pred
                     t_triplets_pred_all = t_triplets_pred_all + t_triplets_pred
+                    t_senPolarity_pred_all = t_senPolarity_pred_all + t_senPolarity_pred
         
         return self._metrics(t_ap_spans_all, t_ap_spans_pred_all), \
                self._metrics(t_op_spans_all, t_op_spans_pred_all), \
-               self._metrics(t_triplets_all, t_triplets_pred_all)
+               self._metrics(t_triplets_all, t_triplets_pred_all), \
+               self._metrics_senPolarity(t_senPolarity_all,t_senPolarity_pred_all)
         
     @staticmethod
     def _metrics(targets, outputs):
@@ -197,6 +204,17 @@ class Instructor:
         recall = float(TP) / float(TP + FN + 1e-5)
         f1 = 2 * precision * recall / (precision + recall + 1e-5)
         return [precision, recall, f1]
+
+    @staticmethod
+    def _metrics_senPolarity(targets, outputs):
+        targets = np.array(targets)
+        outputs = np.array(outputs)
+        correct = np.sum(targets==outputs)
+        acc = correct / len(targets)
+        return acc
+
+
+
 
     def run(self, repeats=1):
         if not os.path.exists('log/'):
@@ -236,8 +254,7 @@ class Instructor:
             print("************** Start testing **************")
 
             self.model.load_state_dict(torch.load(best_state_dict_path))
-            state_dict = torch.load(os.path.join(os.getcwd(), "temp", "model.bin"))
-            self.model.load_state_dict(state_dict)
+
             print("  Load model successful  ")
 
             test_ap_metrics, test_op_metrics, test_triplet_metrics = self._evaluate(self.dev_data_loader)
@@ -295,7 +312,7 @@ if __name__ == '__main__':
     parser.add_argument('--initializer', default='xavier_uniform_', type=str)
     parser.add_argument('--learning_rate', default=0.00001, type=float)
     parser.add_argument('--l2reg', default=0.00001, type=float)
-    parser.add_argument('--num_epoch', default=100, type=int)
+    parser.add_argument('--num_epoch', default=1000, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--log_step', default=500, type=int)
     parser.add_argument('--patience', default=5, type=int)
@@ -319,7 +336,7 @@ if __name__ == '__main__':
     target_colses = {
         'cmla': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask'],
         'hast': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask'],
-        'ote': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask'],
+        'ote': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask','sentece_polarity'],
     }
     initializers = {
         'xavier_uniform_': torch.nn.init.xavier_uniform_,
@@ -337,7 +354,7 @@ if __name__ == '__main__':
     opt.model_class = model_classes[opt.model]
     opt.input_cols = input_colses[opt.model]
     opt.target_cols = target_colses[opt.model]
-    opt.eval_cols = ['ap_spans', 'op_spans', 'triplets']
+    opt.eval_cols = ['ap_spans', 'op_spans', 'triplets','sentece_polarity']
     opt.initializer = initializers[opt.initializer]
     opt.data_dir = data_dirs[opt.dataset]
     opt.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') \

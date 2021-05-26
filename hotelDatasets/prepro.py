@@ -30,6 +30,7 @@ def prepro(filename):
         content = line.strip().split()
         if len(content) == 2: #标签
             word, label = content
+            #过滤数据集中的特殊字符
             if ('\u4e00' <= word <= '\u9fff' or word.isalnum() or word in punc):
                 words.append(word)
                 labels.append(label)
@@ -60,6 +61,7 @@ def prepro(filename):
                     fout.write(trp+';')
                 else:
                     fout.write(trp+'\n')
+            fout.write(sentence_polarity[i]+'\n')
 
 
 

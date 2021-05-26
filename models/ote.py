@@ -50,7 +50,7 @@ class OTE(nn.Module):
     # authorized_unexpected_keys = [r"encoder"]
     authorized_unexpected_keys = [r"pooler"]
 
-    def __init__(self, opt, idx2tag, idx2polarity, tokenizer=None):
+    def __init__(self, opt, idx2tag, idx2polarity):
         super(OTE, self).__init__()
         self.opt = opt
         self.idx2tag = idx2tag
@@ -69,9 +69,10 @@ class OTE(nn.Module):
         self.ap_tag_fc = nn.Linear(100, self.tag_dim)
         self.op_tag_fc = nn.Linear(100, self.tag_dim)
 
+        self.sen_polarity_fc = nn.Linear(self.config.hidden_size,opt.polarities_dim)
     def calc_loss(self, outputs, targets):
-        ap_out, op_out, triplet_out = outputs
-        ap_tag, op_tag, triplet, mask = targets
+        ap_out, op_out, triplet_out, sen_polarity_out= outputs
+        ap_tag, op_tag, triplet, mask,sentece_polarity_tag = targets
         # tag loss
         ap_tag_loss = F.cross_entropy(ap_out.flatten(0, 1), ap_tag.flatten(0, 1), reduction='none',
                                       ignore_index=-100)  # [batch * seq_len]
@@ -84,7 +85,9 @@ class OTE(nn.Module):
         sentiment_loss = F.cross_entropy(triplet_out.view(-1, self.opt.polarities_dim), triplet.view(-1),
                                          reduction='none',ignore_index=-100)
         sentiment_loss = sentiment_loss.masked_select(mat_mask.view(-1)).sum() / mat_mask.sum()
-        return tag_loss + sentiment_loss
+
+        sen_polarity_loss = F.cross_entropy(sen_polarity_out,sentece_polarity_tag,reduction='mean')
+        return tag_loss + sentiment_loss + sen_polarity_loss
 
 
     def forward(self, inputs):
@@ -106,13 +109,18 @@ class OTE(nn.Module):
 
         triplet_out = self.triplet_biaffine(ap_node, op_node)  # [batch,max_seq_len,max_seq_len,polarities_dim]
 
-        return [ap_out, op_out, triplet_out]
+        #池化[batch,seq,768]->[batch,768]
+        sen_polarity_rep = out.mean(dim=1)
+        #FC [batch,768]-> [batch,polarity_dim]
+        sen_polarity_out = self.sen_polarity_fc(sen_polarity_rep)
+
+        return [ap_out, op_out, triplet_out,sen_polarity_out]
 
     def inference(self, inputs, text_indices, text_mask):
         text_len = torch.sum(text_mask, dim=-1)#[batch_size]
 
 
-        ap_out, op_out, triplet_out = inputs
+        ap_out, op_out, triplet_out, sen_polarity_out= inputs
 
         batch_size = text_len.size(0)
         ap_tags = [[] for _ in range(batch_size)]
@@ -142,7 +150,10 @@ class OTE(nn.Module):
         triplets = self.sentiment_decode(text_indices, ap_tags, op_tags, triplet_indices, self.idx2tag,
                                          self.idx2polarity)
 
-        return [ap_spans, op_spans, triplets]
+        sen_polarity_tags= sen_polarity_out.argmax(1)
+        #sen_polarity_tags = self.sen_polarity_decode(sen_polarity_ids,self.idx2polarity)
+
+        return [ap_spans, op_spans, triplets,sen_polarity_tags]
 
     @staticmethod
     def aspect_decode(text_indices, tags, idx2tag):
@@ -180,3 +191,9 @@ class OTE(nn.Module):
             triplet = (ap_beg, ap_end, op_beg, op_end, po)
             result[b].append(triplet)
         return result
+
+    @staticmethod
+    def sen_polarity_decode(sen_polarity_ids,idx2polarity):
+        sen_polarity_ids = sen_polarity_ids.cpu().numpy().tolist()
+        tag_seq = [idx2polarity[id] for id in sen_polarity_ids]
+        return tag_seq

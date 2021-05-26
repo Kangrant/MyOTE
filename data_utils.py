@@ -43,15 +43,18 @@ class ABSADataReader(object):
         镜 子 好 干 净
         [B,I,O,O,O]####[O,O,O,B,I]  ap_tags####op_tags
         [(0,1),(3,4),2]
+        NEG
         """
 
-        for i in range(0, len(lines), 3):
+        for i in range(0, len(lines), 4):
             text = lines[i].strip()
             text = text.split(' ')
             # text = text.split(' ')
             ap_tags, op_tags = lines[i + 1].strip().split('####')
             ap_tags, op_tags = eval(ap_tags), eval(op_tags)
             pairs = lines[i + 2].strip().split(';')
+            sentece_polarity_str = lines[i+3].strip()
+            sentece_polarity_indices = self.polarity_map[sentece_polarity_str]
 
             text_indices = self.tokenizer.encode(text,add_special_tokens=False,is_split_into_words=True)
             seq_len = len(text_indices)
@@ -83,7 +86,8 @@ class ABSADataReader(object):
                 'ap_spans': ap_spans,
                 'op_spans': op_spans,
                 'triplets': triplets,
-                'triplet_indices':triplet_indices
+                'triplet_indices':triplet_indices,
+                'sentece_polarity':sentece_polarity_indices,
             }
             all_data.append(data)
 
