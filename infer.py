@@ -26,11 +26,15 @@ class Inferer:
         torch.autograd.set_grad_enabled(False)
 
     def evaluate(self, text):
-        text_indices = self.tokenizer.encode(text,add_special_tokens=False)
-        text_mask = [1] * len(text_indices)
+        # text_indices = self.tokenizer.encode(text,add_special_tokens=False)
+        # text_mask = [1] * len(text_indices)
+        out = self.tokenizer(text,add_special_tokens=False,padding=True)
+        text_indices = out['input_ids']
+        text_mask = out['attention_mask']
+
         t_sample_batched = {
-            'text_indices': torch.tensor([text_indices]),
-            'text_mask': torch.tensor([text_mask], dtype=torch.uint8),
+            'text_indices': torch.tensor(text_indices),
+            'text_mask': torch.tensor(text_mask, dtype=torch.uint8),
         }
         with torch.no_grad():
             t_inputs = [t_sample_batched[col].to(self.opt.device) for col in self.opt.input_cols]
@@ -86,18 +90,20 @@ if __name__ == '__main__':
     #text = 'Great food but the service was dreadful !'
     #text = 'the atmosphere is attractive , but a little uncomfortable .'
     #laptop
-    text = '环境交通便利,去哪都方便,就是酒店的卫生不太好，隔音太差，空调是坏的，床太小'
+    text = ['环境交通便利,去哪都方便,就是酒店的卫生不太好','隔音太差，空调是坏的，床太小']
     pred_out = inf.evaluate(text)
-    words = text
 
-    triplets = pred_out[2][0]
-    sen_polarity_ids = pred_out[3][0]
-    sen_polarity = polarity_map[sen_polarity_ids]
 
-    for triplet in triplets:
-        ap_beg, ap_end, op_beg, op_end, p = triplet
-        ap = words[ap_beg:ap_end+1]
-        op = words[op_beg:op_end+1]
-        polarity = polarity_map[p]
-        print(f'aspect:{ap},opinion:{op}，polarity:{polarity}')
-    print(f'sentence polarity:{sen_polarity}')
+    for i in range(len(text)):
+
+        triplets = pred_out[2][i]
+        sen_polarity_ids = pred_out[3][i]
+        sen_polarity = polarity_map[sen_polarity_ids]
+
+        for triplet in triplets:
+            ap_beg, ap_end, op_beg, op_end, p = triplet
+            ap = text[i][ap_beg:ap_end+1]
+            op = text[i][op_beg:op_end+1]
+            polarity = polarity_map[p]
+            print(f'aspect:{ap},opinion:{op}，polarity:{polarity}')
+        print(f'sentence polarity:{sen_polarity}')
