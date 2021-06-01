@@ -104,17 +104,16 @@ class Instructor:
                 if global_step % self.opt.log_step == 0:
 
 
-                    # start_time=time.time()
                     dev_ap_metrics, dev_op_metrics, dev_triplet_metrics, dev_senPolarity_metrics = self._evaluate(self.dev_data_loader)
-                    # end_time = time.time()
 
                     dev_ap_precision, dev_ap_recall, dev_ap_f1 = dev_ap_metrics
                     dev_op_precision, dev_op_recall, dev_op_f1 = dev_op_metrics
                     dev_triplet_precision, dev_triplet_recall, dev_triplet_f1 = dev_triplet_metrics
-                    # print("dev_time:%.2f" % (end_time-start_time))
+                    # dev_RE_precision, dev_RE_recall, dev_RE_f1 = dev_RE_metrics
                     print('dev_ap_precision: {:.4f}, dev_ap_recall: {:.4f}, dev_ap_f1: {:.4f}'.format(dev_ap_precision, dev_ap_recall, dev_ap_f1))
                     print('dev_op_precision: {:.4f}, dev_op_recall: {:.4f}, dev_op_f1: {:.4f}'.format(dev_op_precision, dev_op_recall, dev_op_f1))
                     print('dev_triplet_precision: {:.4f}, dev_triplet_recall: {:.4f}, dev_triplet_f1: {:.4f}'.format( dev_triplet_precision, dev_triplet_recall, dev_triplet_f1))
+                    # print('dev_RE_precision: {:.4f}, dev_RE_recall: {:.4f}, dev_RE_f1: {:.4f}'.format( dev_RE_precision, dev_RE_recall, dev_RE_f1))
                     print('dev_senPolarity_acc: {:.4f}'.format(dev_senPolarity_metrics))
                     if dev_triplet_f1 > max_dev_f1:
                         increase_flag = True
@@ -212,6 +211,47 @@ class Instructor:
         correct = np.sum(targets==outputs)
         acc = correct / len(targets)
         return acc
+
+
+    # @staticmethod
+    # def _metrics_RE(targets, outputs):
+    #     TP, FP, FN = 0, 0, 0
+    #     n_sample = len(targets)
+    #     assert n_sample == len(outputs)
+    #
+    #     out ,outputs_RE= [],[]
+    #     tar ,targets_RE= [],[]
+    #
+    #     for i in range(n_sample):
+    #         for sample in targets:
+    #             for tri in sample:
+    #                 ap_beg,ap_end,op_beg,op_end ,_ = tri
+    #                 tar.append((ap_beg,ap_end,op_beg,op_end))
+    #             targets_RE.append(tar)
+    #         for sample in outputs:
+    #             for tri in sample:
+    #                 ap_beg,ap_end,op_beg,op_end ,_ = tri
+    #                 out.append((ap_beg,ap_end,op_beg,op_end))
+    #             outputs_RE.append(out)
+    #
+    #     for i in range(n_sample):
+    #         n_hit = 0
+    #         n_output = len(outputs_RE[i])
+    #         n_target = len(targets_RE[i])
+    #         for t in outputs_RE[i]:
+    #             if t in targets_RE[i]:
+    #                 n_hit += 1
+    #         TP += n_hit
+    #         FP += (n_output - n_hit)
+    #         FN += (n_target - n_hit)
+    #     precision = float(TP) / float(TP + FP + 1e-5)
+    #     recall = float(TP) / float(TP + FN + 1e-5)
+    #     f1 = 2 * precision * recall / (precision + recall + 1e-5)
+    #     return [precision, recall, f1]
+
+
+
+
 
 
 

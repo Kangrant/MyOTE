@@ -24,6 +24,7 @@ def prepro(filename):
     label_all = [] #  每个元素代表每个sentence的标签序列
     triplets_all = []  # 每个元素表示每个sentence中的所有三元组的列表
     sentence_polarity = []  # 每句话的情感极性
+    ap_spans_all = []
 
     words, labels = [], []
     for line in fin:
@@ -43,18 +44,20 @@ def prepro(filename):
         else:# 遇到换行,一个sentence结束
             text = ' '.join(words)
             text_all.append(text)
-            ap_label,op_label,triplet = process_label(labels)
+            ap_label,op_label,triplet,ap_spans = process_label(labels)
             label_all.append((ap_label,op_label))
             triplets_all.append(triplet)
+            ap_spans_all.append(ap_spans)
             words, labels = [], []
 
-    assert len(text_all) == len(triplets_all) == len(sentence_polarity)
+    assert len(text_all) == len(triplets_all) == len(sentence_polarity) == len(ap_spans_all)
 
     for i in range(len(text_all)):
         if(triplets_all[i]):#有些标注没有三元组。这里只输出能构成三元组的
             fout.write(text_all[i]+'\n')
             ap_label,op_label = label_all[i]
-            fout.write(str(ap_label)+'####'+str(op_label)+'\n')
+            ap_span = ap_spans_all[i]
+            fout.write(str(ap_label)+'####'+str(op_label)+'####'+str(ap_span)+'\n')
             for j in range(len(triplets_all[i])):
                 trp=str(triplets_all[i][j])
                 if(j!=len(triplets_all[i])-1):
@@ -78,6 +81,7 @@ def process_label(labels):
 
     triplets = []
     aspect, opinion = [], []
+    ap_spans = []
     ap_label = ['O'] * len(labels)
     op_label =['O'] * len(labels)
     beg, end = 0, 0
@@ -100,11 +104,13 @@ def process_label(labels):
                 ap_label[id] = 'B'
                 beg, end = id, id
                 aspect.append([beg, end, label_index, polarity])
+                ap_spans.append((beg,end))
                 eg, end = 0, 0
             else:
                 end = id
                 ap_label[id] = 'I'
                 aspect.append([beg, end, label_index, polarity])
+                ap_spans.append((beg,end))
                 beg, end = 0, 0
 
         # length >= 4 是opinion标签
@@ -150,7 +156,7 @@ def process_label(labels):
                 triplets.append(triplet)
 
     #print(triplets)
-    return ap_label,op_label,triplets
+    return ap_label,op_label,triplets,ap_spans
 
 def bio2bieos(tags):
     new_tags = []
@@ -191,9 +197,9 @@ def bieos2span(tags, tp='-AP'): # tp = '', '-AP', or '-OP'
     return spans
 
 if __name__ == '__main__':
-    filename = 'hotel/dev.txt'
-    # filename = 'hotel/train.txt'
-    #filename = 'test/dev.txt'
+    # filename = 'hotel/dev.txt'
+    filename = 'hotel/train.txt'
+    # filename = 'test/dev.txt'
     # filename = 'test/train.txt'
     prepro(filename=filename)
 

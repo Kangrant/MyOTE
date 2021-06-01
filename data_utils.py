@@ -50,15 +50,15 @@ class ABSADataReader(object):
             text = lines[i].strip()
             text = text.split(' ')
             # text = text.split(' ')
-            ap_tags, op_tags = lines[i + 1].strip().split('####')
-            ap_tags, op_tags = eval(ap_tags), eval(op_tags)
+            ap_tags, op_tags,ap_span = lines[i + 1].strip().split('####')
+            ap_tags, op_tags ,ap_spans= eval(ap_tags), eval(op_tags) , eval(ap_span)
             pairs = lines[i + 2].strip().split(';')
             sentece_polarity_str = lines[i+3].strip()
             sentece_polarity_indices = self.polarity_map[sentece_polarity_str]
 
             text_indices = self.tokenizer.encode(text,add_special_tokens=False,is_split_into_words=True)
             seq_len = len(text_indices)
-            ap_spans = []
+            # ap_spans = []
             op_spans = []
             triplets = []
             triplet_indices = np.zeros((seq_len, seq_len), dtype=np.int64)
@@ -70,8 +70,8 @@ class ABSADataReader(object):
                 polarity = self.polarity_map[polarity_str]
                 triplet_indices[ap_end][op_end] = polarity
 
-                if (ap_beg, ap_end) not in ap_spans:
-                    ap_spans.append((ap_beg, ap_end))
+                # if (ap_beg, ap_end) not in ap_spans:
+                #     ap_spans.append((ap_beg, ap_end))
                 if (op_beg, op_end) not in op_spans:
                     op_spans.append((op_beg, op_end))
                 triplets.append((ap_beg, ap_end, op_beg, op_end, polarity))
