@@ -50,12 +50,14 @@ class OTE(nn.Module):
     # authorized_unexpected_keys = [r"encoder"]
     authorized_unexpected_keys = [r"pooler"]
 
-    def __init__(self, opt, idx2tag, idx2polarity):
+    def __init__(self, opt, idx2tag, idx2polarity,idx2target):
         super(OTE, self).__init__()
         self.opt = opt
         self.idx2tag = idx2tag
         self.tag_dim = len(self.idx2tag)
         self.idx2polarity = idx2polarity
+        self.idx2target = idx2target
+        self.target_dim = len(self.idx2target)
         self.config = BertConfig.from_pretrained('./bert-base-chinese')
 
         self.bert = BertModel.from_pretrained('./bert-base-chinese', config=self.config, add_pooling_layer=False)
@@ -66,13 +68,14 @@ class OTE(nn.Module):
         self.op_fc = nn.Linear(self.config.hidden_size, 200)
 
         self.triplet_biaffine = Biaffine(opt, 100, 100, opt.polarities_dim, bias=(True, False))
+        self.target_biaffine = Biaffine(opt, 100, 100, self.target_dim, bias=(True, False))
         self.ap_tag_fc = nn.Linear(100, self.tag_dim)
         self.op_tag_fc = nn.Linear(100, self.tag_dim)
 
         self.sen_polarity_fc = nn.Linear(self.config.hidden_size,opt.polarities_dim)
     def calc_loss(self, outputs, targets):
-        ap_out, op_out, triplet_out, sen_polarity_out= outputs
-        ap_tag, op_tag, triplet, mask,sentece_polarity_tag = targets
+        ap_out, op_out, triplet_out, sen_polarity_out,target_out= outputs
+        ap_tag, op_tag, triplet, mask,sentece_polarity_tag,target_gold = targets
         # tag loss
         ap_tag_loss = F.cross_entropy(ap_out.flatten(0, 1), ap_tag.flatten(0, 1), reduction='none',
                                       ignore_index=-100)  # [batch * seq_len]
@@ -86,8 +89,13 @@ class OTE(nn.Module):
                                          reduction='none',ignore_index=-100)
         sentiment_loss = sentiment_loss.masked_select(mat_mask.view(-1)).sum() / mat_mask.sum()
 
+        target_loss = F.cross_entropy(target_out.view(-1, self.target_dim), target_gold.view(-1),
+                                         reduction='none',ignore_index=-100)
+        target_loss = target_loss.masked_select(mat_mask.view(-1)).sum() / mat_mask.sum()
+
         sen_polarity_loss = F.cross_entropy(sen_polarity_out,sentece_polarity_tag,reduction='mean')
-        return tag_loss + sentiment_loss + sen_polarity_loss
+
+        return tag_loss + sentiment_loss + sen_polarity_loss + target_loss
 
 
     def forward(self, inputs):
@@ -108,19 +116,20 @@ class OTE(nn.Module):
         op_out = self.op_tag_fc(op_rep)
 
         triplet_out = self.triplet_biaffine(ap_node, op_node)  # [batch,max_seq_len,max_seq_len,polarities_dim]
+        target_out = self.target_biaffine(ap_node, op_node)  # [batch,max_seq_len,max_seq_len,target_dim]
 
         #池化[batch,seq,768]->[batch,768]
         sen_polarity_rep = out.mean(dim=1)
         #FC [batch,768]-> [batch,polarity_dim]
         sen_polarity_out = self.sen_polarity_fc(sen_polarity_rep)
 
-        return [ap_out, op_out, triplet_out,sen_polarity_out]
+        return [ap_out, op_out, triplet_out,sen_polarity_out,target_out]
 
     def inference(self, inputs, text_indices, text_mask):
         text_len = torch.sum(text_mask, dim=-1)#[batch_size]
 
 
-        ap_out, op_out, triplet_out, sen_polarity_out= inputs
+        ap_out, op_out, triplet_out, sen_polarity_out,target_out= inputs
 
         batch_size = text_len.size(0)
         ap_tags = [[] for _ in range(batch_size)]
@@ -140,20 +149,28 @@ class OTE(nn.Module):
         mat_mask = (text_mask.unsqueeze(2) * text_mask.unsqueeze(1)).unsqueeze(3).expand(
             -1, -1, -1, self.opt.polarities_dim)  # batch x seq x seq x polarity
 
+        mat_mask_target = (text_mask.unsqueeze(2) * text_mask.unsqueeze(1)).unsqueeze(3).expand(
+            -1, -1, -1, self.target_dim)
 
         #triplet_indices->[batch,max_seq_len,max_seq_len,tag_dim]
         triplet_indices = torch.zeros_like(triplet_out).to(self.opt.device)
         triplet_indices = triplet_indices.scatter_(3, triplet_out.argmax(dim=3, keepdim=True), 1) * mat_mask.float()
-
-
         triplet_indices = torch.nonzero(triplet_indices).cpu().numpy().tolist()
         triplets = self.sentiment_decode(text_indices, ap_tags, op_tags, triplet_indices, self.idx2tag,
                                          self.idx2polarity)
 
+        target_indices = torch.zeros_like(target_out).to(self.opt.device)
+        target_indices = target_indices.scatter_(3, target_out.argmax(dim=3, keepdim=True), 1) * mat_mask_target.float()
+        target_indices = torch.nonzero(target_indices).cpu().numpy().tolist()
+        target = self.target_decode(text_indices, ap_tags, op_tags, target_indices, self.idx2tag,
+                                         self.idx2target)
+
+
+
         sen_polarity_tags= sen_polarity_out.argmax(1)
         #sen_polarity_tags = self.sen_polarity_decode(sen_polarity_ids,self.idx2polarity)
 
-        return [ap_spans, op_spans, triplets,sen_polarity_tags]
+        return [ap_spans, op_spans, triplets, sen_polarity_tags,target]
 
     @staticmethod
     def aspect_decode(text_indices, tags, idx2tag):
@@ -197,3 +214,21 @@ class OTE(nn.Module):
         sen_polarity_ids = sen_polarity_ids.cpu().numpy().tolist()
         tag_seq = [idx2polarity[id] for id in sen_polarity_ids]
         return tag_seq
+
+    @staticmethod
+    def target_decode(text_indices, ap_tags, op_tags, target_indices, idx2tag, idx2target):
+        # text_indices = text_indices.cpu().numpy().tolist()
+        batch_size = len(ap_tags)
+        result = [[] for _ in range(batch_size)]
+        for i in range(len(target_indices)):
+            b, ap_i, ap_j, po = target_indices[i]
+            if po == 0 or ap_i!=ap_j:
+                continue
+            _ap_tags = list(map(lambda x: idx2tag[x], ap_tags[b]))
+            # _op_tags = list(map(lambda x: idx2tag[x], op_tags[b]))
+            ap_beg, ap_end = find_span_with_end(ap_i, text_indices[b], _ap_tags, tp='')
+            # op_beg, op_end = find_span_with_end(op_i, text_indices[b], _op_tags, tp='')
+            po = idx2target[po]
+            target = (ap_beg, ap_end,  po)
+            result[b].append(target)
+        return result

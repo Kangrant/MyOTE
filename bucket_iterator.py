@@ -34,16 +34,19 @@ class BucketIterator(object):
         batch_ap_indices = []
         batch_op_indices = []
         batch_triplet_indices = []
+        batch_target_indices = []
         batch_ap_spans = []
         batch_op_spans = []
         batch_triplets = []
+        batch_targets = []
         batch_sentece_polarity = []
         max_len = max([len(t['text_indices']) for t in batch_data])
 
         for item in batch_data:
-            text_indices, ap_indices, op_indices,  ap_spans, op_spans, triplets ,triplet_indices,sentece_polarity= \
+            text_indices, ap_indices, op_indices,  ap_spans, op_spans, triplets ,triplet_indices,sentece_polarity,target_indices,targets= \
                 item['text_indices'], item['ap_indices'], item['op_indices'],  \
-                item['ap_spans'], item['op_spans'], item['triplets'],item['triplet_indices'],item['sentece_polarity']
+                item['ap_spans'], item['op_spans'], item['triplets'],item['triplet_indices'],\
+                item['sentece_polarity'],item['target_indices'],item['targets']
 
             # 0-padding because 0 stands for 'O'
             text_padding = [0] * (max_len - len(text_indices))
@@ -55,9 +58,13 @@ class BucketIterator(object):
             batch_triplet_indices.append(
                 numpy.pad(triplet_indices, ((0, max_len - len(text_indices) ), (0, max_len - len(text_indices) )),
                           'constant'))
+            batch_target_indices.append(
+                numpy.pad(target_indices, ((0, max_len - len(text_indices) ), (0, max_len - len(text_indices) )),
+                          'constant'))
             batch_ap_spans.append(ap_spans)
             batch_op_spans.append(op_spans)
             batch_triplets.append(triplets)
+            batch_targets.append(targets)
             batch_sentece_polarity.append(sentece_polarity)
 
         return {
@@ -66,9 +73,11 @@ class BucketIterator(object):
             'ap_indices': torch.tensor(batch_ap_indices),  # 带ap标签的序列
             'op_indices': torch.tensor(batch_op_indices),
             'triplet_indices': torch.tensor(batch_triplet_indices),
+            'target_indices': torch.tensor(batch_target_indices),
             'ap_spans': batch_ap_spans,  # ap的区间
             'op_spans': batch_op_spans,
             'triplets': batch_triplets,
+            'targets': batch_targets,
             'sentece_polarity':torch.tensor(batch_sentece_polarity)
 
         }
