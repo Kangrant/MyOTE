@@ -7,3 +7,5 @@ temp/model.bin
 hotelDatasets/
 .idea/
 input.txt
+pretrain_chinese_word/sgns.wiki.word
+test_word.txt

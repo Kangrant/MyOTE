@@ -7,14 +7,14 @@ from transformers import BertTokenizer
 
 
 class ABSADataReader(object):
-    def __init__(self, data_dir):
-
+    def __init__(self, data_dir,opt):
+        self.opt = opt
         self.tag_map, self.reverse_tag_map, self.target_map, self.reverse_target_map ,\
                                             self.express_map, self.reverse_express_map= self._get_tag_map()
         self.polarity_map = {'N': 0, 'NEU': 1, 'NEG': 2, 'POS': 3}  # NO_RELATION is 0
         self.reverse_polarity_map = {v: k for k, v in self.polarity_map.items()}
         self.data_dir = data_dir
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
+
 
     def get_train(self, tokenizer):
         return self._create_dataset('train', tokenizer)
@@ -53,7 +53,6 @@ class ABSADataReader(object):
 
         for i in range(0, len(lines), 6):
             text = lines[i].strip()
-            text = text.split(' ')
             # text = text.split(' ')
             ap_tags, op_tags, ap_span = lines[i + 1].strip().split('####')
             ap_tags, op_tags, ap_spans = eval(ap_tags), eval(op_tags), eval(ap_span)
@@ -62,7 +61,11 @@ class ABSADataReader(object):
             sentece_polarity_indices = self.polarity_map[sentece_polarity_str]
             target_pairs = eval(lines[i + 4].strip())
 
-            text_indices = self.tokenizer.encode(text, add_special_tokens=False, is_split_into_words=True)
+            if self.opt.useBert:
+                text = text.split(' ')
+                text_indices = tokenizer.encode(text, add_special_tokens=False, is_split_into_words=True)
+            else:
+                text_indices = tokenizer.text_to_sequence(text)
             seq_len = len(text_indices)
             # ap_spans = []
             op_spans = []
@@ -134,3 +137,103 @@ class ABSADataReader(object):
             all_data.append(data)
 
         return all_data
+
+
+def load_word_vec(path, word2idx=None, embed_dim=300):
+    fin = open(path, 'r', encoding='utf-8', newline='\n', errors='ignore')
+    word_vec = {}
+    for line in fin:
+        tokens = line.rstrip().split()
+        if len(tokens) != 2:
+            word, vec = ' '.join(tokens[:-embed_dim]), tokens[-embed_dim:]
+            if word in word2idx.keys():
+                word_vec[word] = np.asarray(vec, dtype='float32')
+    return word_vec
+
+def build_embedding_matrix(data_dir, word2idx, embed_dim, type):
+    embedding_matrix_file_name = '{0}_{1}_embedding_matrix.pkl'.format(str(embed_dim), type)
+    if os.path.exists(os.path.join(data_dir, embedding_matrix_file_name)):
+        print('>>> loading embedding matrix:', embedding_matrix_file_name)
+        embedding_matrix = pickle.load(open(os.path.join(data_dir, embedding_matrix_file_name), 'rb'))
+    else:
+        print('>>> loading word vectors ...')
+        # words not found in embedding index will be randomly initialized.
+        embedding_matrix = np.random.uniform(-1/np.sqrt(embed_dim), 1/np.sqrt(embed_dim), (len(word2idx), embed_dim))
+        # <pad>
+        embedding_matrix[0, :] = np.zeros((1, embed_dim))
+        fname = './pretrain_chinese_word/sgns.wiki.word'
+        word_vec = load_word_vec(fname, word2idx=word2idx, embed_dim=embed_dim)
+        print('>>> building embedding matrix:', embedding_matrix_file_name)
+        for word, i in word2idx.items():
+            vec = word_vec.get(word)
+            if vec is not None:
+                embedding_matrix[i] = vec
+        pickle.dump(embedding_matrix, open(os.path.join(data_dir, embedding_matrix_file_name), 'wb'))
+    return embedding_matrix
+
+class Tokenizer(object):
+    def __init__(self, word2idx=None):
+        if word2idx is None:
+            self.word2idx = {}
+            self.idx2word = {}
+            self.idx = 0
+            self.word2idx['<pad>'] = self.idx
+            self.idx2word[self.idx] = '<pad>'
+            self.idx += 1
+            self.word2idx['<unk>'] = self.idx
+            self.idx2word[self.idx] = '<unk>'
+            self.idx += 1
+        else:
+            self.word2idx = word2idx
+            self.idx2word = {v:k for k,v in word2idx.items()}
+
+    def fit_on_text(self, text):
+        """
+        将词添加到词表中
+        """
+        text = text.lower()
+        words = text.split()
+        for word in words:
+            if word not in self.word2idx:
+                self.word2idx[word] = self.idx
+                self.idx2word[self.idx] = word
+                self.idx += 1
+
+    def text_to_sequence(self, text):
+        """
+        将text转换为id表示
+        """
+        # text = text.lower()
+        words = text.split()
+        unknownidx = 1
+        sequence = [self.word2idx[w] if w in self.word2idx else unknownidx for w in words]
+        if len(sequence) == 0:
+            sequence = [0]
+        return sequence
+
+def build_tokenizer(data_dir):
+    if os.path.exists(os.path.join(data_dir, 'word2idx.pkl')):
+        print('>>> loading {0} tokenizer...'.format(data_dir))
+        with open(os.path.join(data_dir, 'word2idx.pkl'), 'rb') as f:
+            word2idx = pickle.load(f)
+            tokenizer = Tokenizer(word2idx=word2idx)
+    else:
+        filenames = [os.path.join(data_dir, '%s.all' % set_type) for set_type in ['train', 'dev']]
+        all_text = ''
+        for filename in filenames:
+            with open(filename, 'r', encoding='utf-8') as fp:
+                lines = fp.readlines()
+                for i in range(0,len(lines),6):
+                    text = lines[i].strip()
+                    all_text += (text + ' ')
+        tokenizer = Tokenizer()
+        tokenizer.fit_on_text(all_text)
+        print('>>> saving {0} tokenizer...'.format(data_dir))
+        with open(os.path.join(data_dir, 'word2idx.pkl'), 'wb') as f:
+            pickle.dump(tokenizer.word2idx, f)
+
+    return tokenizer
+
+if __name__ == '__main__':
+    path = r'test_word.txt'
+    load_word_vec(path)

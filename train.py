@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from bucket_iterator import BucketIterator
-from data_utils import ABSADataReader
+from data_utils import ABSADataReader,build_tokenizer,build_embedding_matrix
 from models import OTE
 
 from transformers import BertTokenizer
@@ -20,9 +20,14 @@ from torch.cuda.amp.grad_scaler import GradScaler
 class Instructor:
     def __init__(self, opt):
         self.opt = opt
-        absa_data_reader = ABSADataReader(data_dir=opt.data_dir)
-        #bert
-        tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+        absa_data_reader = ABSADataReader(data_dir=opt.data_dir,opt=opt)
+        if opt.useBert:
+            #bert
+            tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+            embedding_matrix = []
+        else:
+            tokenizer = build_tokenizer(data_dir=opt.data_dir)
+            embedding_matrix = build_embedding_matrix(opt.data_dir, tokenizer.word2idx, opt.embed_dim, opt.dataset)
 
         self.idx2tag, self.idx2polarity,self.idx2target ,self.idx2express= absa_data_reader.reverse_tag_map, \
                                           absa_data_reader.reverse_polarity_map,\
@@ -34,7 +39,7 @@ class Instructor:
         self.dev_data_loader = BucketIterator(data=absa_data_reader.get_dev(tokenizer),
                                               batch_size=opt.batch_size,
                                               shuffle=False)
-        self.model = opt.model_class(
+        self.model = opt.model_class(embedding_matrix=embedding_matrix,
                                      opt=opt,
                                      idx2tag=self.idx2tag,
                                      idx2polarity=self.idx2polarity,
@@ -83,7 +88,7 @@ class Instructor:
                 inputs = [sample_batched[col].to(self.opt.device) for col in self.opt.input_cols]
                 targets = [sample_batched[col].to(self.opt.device) for col in self.opt.target_cols]
                 with autocast():
-                    outputs = self.model(inputs)#模型只喂入了text
+                    outputs = self.model(inputs,opt)#模型只喂入了text
                     loss = self.model.calc_loss(outputs, targets)
 
                 scaler.scale(loss).backward()
@@ -138,7 +143,7 @@ class Instructor:
 
                 start_time = time.time()
                 with autocast():
-                    dev_outpus = self.model(t_inputs)
+                    dev_outpus = self.model(t_inputs,opt)
                 model_time = time.time()-start_time
                 t_ap_spans_pred, t_op_spans_pred, t_triplets_pred, t_senPolarity_pred,t_target_pred ,t_express_pred= self.model.inference(dev_outpus,t_inputs[0],t_inputs[1])
                 t_senPolarity_pred = t_senPolarity_pred.cpu().numpy().tolist()
@@ -202,7 +207,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--v2', action='store_true')
     parser.add_argument('--model', default='ote', type=str)
-    parser.add_argument('--dataset', default='hotel', type=str, help='laptop14, rest14, rest15, rest16')
+    parser.add_argument('--useBert', default=False, type=bool,help='if Fasle , will ues LSTM')
+    parser.add_argument('--dataset', default='hotel', type=str, help='hotel,test')
     parser.add_argument('--learning_rate', default=0.00001, type=float)
     parser.add_argument('--l2reg', default=0.00001, type=float)
     parser.add_argument('--num_epoch', default=1000, type=int)
