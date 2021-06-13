@@ -4,10 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from layers.dynamic_rnn import DynamicRNN
-from tag_utils import bio2bieos, bieos2span, find_span_with_end,bieos2span_express
-
+from tag_utils import  bio2bieos,bieos2span, find_span_with_end,bieos2span_express
 from transformers import BertModel, BertConfig
 
 
@@ -47,7 +45,6 @@ class Biaffine(nn.Module):
 
 
 class OTE(nn.Module):
-    # authorized_unexpected_keys = [r"encoder"]
     authorized_unexpected_keys = [r"pooler"]
 
     def __init__(self, opt, idx2tag, idx2polarity,idx2target,idx2express):
@@ -137,11 +134,10 @@ class OTE(nn.Module):
 
     def inference(self, inputs, text_indices, text_mask):
         text_len = torch.sum(text_mask, dim=-1)#[batch_size]
-
-
         ap_out, op_out, triplet_out, sen_polarity_out,target_out,express_out= inputs
 
         batch_size = text_len.size(0)
+
         ap_tags = [[] for _ in range(batch_size)]
         op_tags = [[] for _ in range(batch_size)]
         express_tags = [[] for _ in range(batch_size)]

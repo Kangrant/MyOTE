@@ -10,7 +10,7 @@ import torch.nn as nn
 import numpy as np
 from bucket_iterator import BucketIterator
 from data_utils import ABSADataReader
-from models import CMLA, HAST, OTE
+from models import OTE
 
 from transformers import BertTokenizer
 
@@ -20,10 +20,7 @@ from torch.cuda.amp.grad_scaler import GradScaler
 class Instructor:
     def __init__(self, opt):
         self.opt = opt
-        
-
         absa_data_reader = ABSADataReader(data_dir=opt.data_dir)
-
         #bert
         tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
 
@@ -37,7 +34,6 @@ class Instructor:
         self.dev_data_loader = BucketIterator(data=absa_data_reader.get_dev(tokenizer),
                                               batch_size=opt.batch_size,
                                               shuffle=False)
-
         self.model = opt.model_class(
                                      opt=opt,
                                      idx2tag=self.idx2tag,
@@ -63,7 +59,6 @@ class Instructor:
         for arg in vars(self.opt):
             print('>>> {0}: {1}'.format(arg, getattr(self.opt, arg)))
 
-
     def _train(self, optimizer):
         # if os.path.exists("./temp/model.bin"):
         #     torch.load()
@@ -85,16 +80,13 @@ class Instructor:
                 # switch model to training mode, clear gradient accumulators
                 self.model.train()
 
-                #optimizer.zero_grad()
-
                 inputs = [sample_batched[col].to(self.opt.device) for col in self.opt.input_cols]
                 targets = [sample_batched[col].to(self.opt.device) for col in self.opt.target_cols]
                 with autocast():
                     outputs = self.model(inputs)#模型只喂入了text
                     loss = self.model.calc_loss(outputs, targets)
-                #loss.backward()
-                scaler.scale(loss).backward()
 
+                scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 scaler.step(optimizer)
                 scaler.update()
@@ -129,76 +121,37 @@ class Instructor:
                         torch.save(self.model.state_dict(), best_state_dict_path)
                         print('>>> best model saved.')
 
-            if increase_flag == False:
-                continue_not_increase += 1
-                if continue_not_increase >= self.opt.patience:
-                    print('early stop.')
-                    # break
-            else:
-                continue_not_increase = 0
         print("************** Finish train **************")
-        # torch.save(self.model.state_dict(),'./temp/model.bin')
-        # print(" saving model successful")
+
         return best_state_dict_path
 
     def _evaluate(self, data_loader):
         # switch model to evaluation mode
         print("********** Strat eval **********")
         self.model.eval()
-        t_ap_spans_all, t_op_spans_all, t_triplets_all  = None, None, None
-        t_ap_spans_pred_all, t_op_spans_pred_all, t_triplets_pred_all  = None, None, None
 
         with torch.no_grad():
             for t_batch, t_sample_batched in enumerate(data_loader):
                 t_inputs = [t_sample_batched[col].to(self.opt.device) for col in self.opt.input_cols]
                 t_ap_spans, t_op_spans, t_triplets, t_senPolarity ,t_target,t_express= [t_sample_batched[col] for col in self.opt.eval_cols]
                 t_senPolarity = t_senPolarity.cpu().numpy().tolist()
+
                 start_time = time.time()
                 with autocast():
                     dev_outpus = self.model(t_inputs)
                 model_time = time.time()-start_time
-                #t_ap_spans_pred, t_op_spans_pred, t_triplets_pred = self.model.inference(t_inputs)
                 t_ap_spans_pred, t_op_spans_pred, t_triplets_pred, t_senPolarity_pred,t_target_pred ,t_express_pred= self.model.inference(dev_outpus,t_inputs[0],t_inputs[1])
                 t_senPolarity_pred = t_senPolarity_pred.cpu().numpy().tolist()
                 infer_time = time.time()-start_time
-
                 print("model_time:%.2f, infer_time:%.2f " %(model_time,infer_time))
 
-                if t_ap_spans_all is None:
-                    t_ap_spans_all = t_ap_spans
-                    t_op_spans_all = t_op_spans
-                    t_triplets_all = t_triplets
-                    t_target_all = t_target
-                    t_senPolarity_all = t_senPolarity
-                    t_express_all = t_express
 
-                    t_ap_spans_pred_all = t_ap_spans_pred
-                    t_op_spans_pred_all = t_op_spans_pred
-                    t_triplets_pred_all = t_triplets_pred
-                    t_target_pred_all = t_target_pred
-                    t_senPolarity_pred_all = t_senPolarity_pred
-                    t_express_pred_all = t_express_pred
-                else:
-                    t_ap_spans_all = t_ap_spans_all + t_ap_spans
-                    t_op_spans_all = t_op_spans_all + t_op_spans
-                    t_triplets_all = t_triplets_all + t_triplets
-                    t_target_all = t_target_all + t_target
-                    t_senPolarity_all = t_senPolarity_all + t_senPolarity
-                    t_express_all = t_express_all + t_express
-
-                    t_ap_spans_pred_all = t_ap_spans_pred_all + t_ap_spans_pred
-                    t_op_spans_pred_all = t_op_spans_pred_all + t_op_spans_pred
-                    t_triplets_pred_all = t_triplets_pred_all + t_triplets_pred
-                    t_target_pred_all = t_target_pred_all + t_target_pred
-                    t_senPolarity_pred_all = t_senPolarity_pred_all + t_senPolarity_pred
-                    t_express_pred_all = t_express_pred_all + t_express_pred
-
-        return self._metrics(t_ap_spans_all, t_ap_spans_pred_all), \
-               self._metrics(t_op_spans_all, t_op_spans_pred_all), \
-               self._metrics(t_triplets_all, t_triplets_pred_all), \
-               self._metrics_senPolarity(t_senPolarity_all,t_senPolarity_pred_all), \
-               self._metrics(t_target_all, t_target_pred_all),\
-               self._metrics(t_express_all,t_express_pred_all)
+        return self._metrics(t_ap_spans, t_ap_spans_pred), \
+               self._metrics(t_op_spans, t_op_spans_pred), \
+               self._metrics(t_triplets, t_triplets_pred), \
+               self._metrics_senPolarity(t_senPolarity,t_senPolarity_pred), \
+               self._metrics(t_target, t_target_pred),\
+               self._metrics(t_express,t_express_pred)
 
     @staticmethod
     def _metrics(targets, outputs):
@@ -230,91 +183,18 @@ class Instructor:
 
 
 
-    def run(self, repeats=1):
-        if not os.path.exists('log/'):
-            os.mkdir('log/')
-
+    def run(self):
         if not os.path.exists('state_dict/'):
             os.mkdir('state_dict/')
-        if self.opt.v2:
-            f_out = open('log/'+self.opt.model+'_'+self.opt.dataset+'_val_v2.txt', 'w', encoding='utf-8')
 
-        else:
-            f_out = open('log/'+self.opt.model+'_'+self.opt.dataset+'_val.txt', 'w', encoding='utf-8')
+        # self._reset_params()
+        _params = filter(lambda p: p.requires_grad, self.model.parameters())
 
-        test_ap_precision_avg = 0
-        test_ap_recall_avg = 0
-        test_ap_f1_avg = 0
+        optimizer = torch.optim.Adam(_params, lr=self.opt.learning_rate, weight_decay=self.opt.l2reg)
+        #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=l)
 
-        test_op_precision_avg = 0
-        test_op_recall_avg = 0
-        test_op_f1_avg = 0
+        self._train(optimizer)
 
-        test_triplet_precision_avg = 0
-        test_triplet_recall_avg = 0
-        test_triplet_f1_avg = 0
-
-        for i in range(repeats):
-            print('repeat: {0}'.format(i+1))
-            f_out.write('repeat: {0}\n'.format(i+1))
-
-            # self._reset_params()
-            _params = filter(lambda p: p.requires_grad, self.model.parameters())
-
-            optimizer = torch.optim.Adam(_params, lr=self.opt.learning_rate, weight_decay=self.opt.l2reg)
-            #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=l)
-
-            best_state_dict_path = self._train(optimizer)
-            print("************** Start testing **************")
-
-            self.model.load_state_dict(torch.load(best_state_dict_path))
-
-            print("  Load model successful  ")
-
-            test_ap_metrics, test_op_metrics, test_triplet_metrics = self._evaluate(self.dev_data_loader)
-            test_ap_precision, test_ap_recall, test_ap_f1 = test_ap_metrics
-            test_op_precision, test_op_recall, test_op_f1 = test_op_metrics
-            test_triplet_precision, test_triplet_recall, test_triplet_f1 = test_triplet_metrics
-
-            print('test_ap_precision: {:.4f}, test_ap_recall: {:.4f}, test_ap_f1: {:.4f}'
-                  .format(test_ap_precision, test_ap_recall, test_ap_f1))
-            f_out.write('test_ap_precision: {:.4f}, test_ap_recall: {:.4f}, test_ap_f1: {:.4f}\n'
-                        .format(test_ap_precision, test_ap_recall, test_ap_f1))
-            print('test_op_precision: {:.4f}, test_op_recall: {:.4f}, test_op_f1: {:.4f}'
-                  .format(test_op_precision, test_op_recall, test_op_f1))
-            f_out.write('test_op_precision: {:.4f}, test_op_recall: {:.4f}, test_op_f1: {:.4f}\n'
-                        .format(test_op_precision, test_op_recall, test_op_f1))
-            print('test_triplet_precision: {:.4f}, test_triplet_recall: {:.4f}, test_triplet_f1: {:.4f}'
-                  .format(test_triplet_precision, test_triplet_recall, test_triplet_f1))
-            f_out.write('test_triplet_precision: {:.4f}, test_triplet_recall: {:.4f}, test_triplet_f1: {:.4f}\n'
-                        .format(test_triplet_precision, test_triplet_recall, test_triplet_f1))
-
-            test_ap_precision_avg += test_ap_precision
-            test_ap_recall_avg += test_ap_recall
-            test_ap_f1_avg += test_ap_f1
-
-            test_op_precision_avg += test_op_precision
-            test_op_recall_avg += test_op_recall
-            test_op_f1_avg += test_op_f1
-
-            test_triplet_precision_avg += test_triplet_precision
-            test_triplet_recall_avg += test_triplet_recall
-            test_triplet_f1_avg += test_triplet_f1
-
-            print('#' * 100)
-
-        print("test_ap_precision_avg:", test_ap_precision_avg / repeats)
-        print("test_ap_recall_avg:", test_ap_recall_avg / repeats)
-        print("test_ap_f1_avg:", test_ap_f1_avg / repeats)
-        print("test_op_precision_avg:", test_op_precision_avg / repeats)
-        print("test_op_recall_avg:", test_op_recall_avg / repeats)
-        print("test_op_f1_avg:", test_op_f1_avg / repeats)
-        print("test_triplet_precision_avg:", test_triplet_precision_avg / repeats)
-        print("test_triplet_recall_avg:", test_triplet_recall_avg / repeats)
-        print("test_triplet_f1_avg:", test_triplet_f1_avg / repeats)
-
-        f_out.close()
-        print("************** Test Finished *************")
 
 
 if __name__ == '__main__':
@@ -323,7 +203,6 @@ if __name__ == '__main__':
     parser.add_argument('--v2', action='store_true')
     parser.add_argument('--model', default='ote', type=str)
     parser.add_argument('--dataset', default='hotel', type=str, help='laptop14, rest14, rest15, rest16')
-    parser.add_argument('--initializer', default='xavier_uniform_', type=str)
     parser.add_argument('--learning_rate', default=0.00001, type=float)
     parser.add_argument('--l2reg', default=0.00001, type=float)
     parser.add_argument('--num_epoch', default=1000, type=int)
@@ -338,30 +217,16 @@ if __name__ == '__main__':
     opt = parser.parse_args()
 
     model_classes = {
-        'cmla': CMLA,
-        'hast': HAST,
         'ote': OTE,
     }
     input_colses = {
-        'cmla': ['text_indices', 'text_mask'],
-        'hast': ['text_indices', 'text_mask'],
         'ote': ['text_indices', 'text_mask'],
     }
     target_colses = {
-        'cmla': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask'],
-        'hast': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask'],
         'ote': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask','sentece_polarity','target_indices','express_indices'],
     }
-    initializers = {
-        'xavier_uniform_': torch.nn.init.xavier_uniform_,
-        'xavier_normal_': torch.nn.init.xavier_normal_,
-        'orthogonal_': torch.nn.init.orthogonal_,
-    }
+
     data_dirs = {
-        'laptop14': 'datasets/14lap',
-        'rest14': 'datasets/14rest',
-        'rest15': 'datasets/15rest',
-        'rest16': 'datasets/16rest',
         'hotel' : 'hotelDatasets/hotel',
         'test'  : 'hotelDatasets/test'
     }
@@ -369,7 +234,6 @@ if __name__ == '__main__':
     opt.input_cols = input_colses[opt.model]
     opt.target_cols = target_colses[opt.model]
     opt.eval_cols = ['ap_spans', 'op_spans', 'triplets','sentece_polarity','targets','express_label']
-    opt.initializer = initializers[opt.initializer]
     opt.data_dir = data_dirs[opt.dataset]
     opt.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') \
         if opt.device is None else torch.device(opt.device)
