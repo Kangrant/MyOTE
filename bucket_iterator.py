@@ -40,13 +40,17 @@ class BucketIterator(object):
         batch_triplets = []
         batch_targets = []
         batch_sentece_polarity = []
+        batch_express_label = []
+        batch_express_indices = []
+
         max_len = max([len(t['text_indices']) for t in batch_data])
 
         for item in batch_data:
-            text_indices, ap_indices, op_indices,  ap_spans, op_spans, triplets ,triplet_indices,sentece_polarity,target_indices,targets= \
+            text_indices, ap_indices, op_indices,  ap_spans, op_spans, triplets ,triplet_indices,sentece_polarity,target_indices,targets, \
+            express_label,express_indices= \
                 item['text_indices'], item['ap_indices'], item['op_indices'],  \
                 item['ap_spans'], item['op_spans'], item['triplets'],item['triplet_indices'],\
-                item['sentece_polarity'],item['target_indices'],item['targets']
+                item['sentece_polarity'],item['target_indices'],item['targets'],item['express_label'],item['express_indices']
 
             # 0-padding because 0 stands for 'O'
             text_padding = [0] * (max_len - len(text_indices))
@@ -54,7 +58,7 @@ class BucketIterator(object):
             batch_text_mask.append([1] * len(text_indices) + text_padding)
             batch_ap_indices.append(ap_indices + text_padding)
             batch_op_indices.append(op_indices + text_padding)
-
+            batch_express_indices.append(express_indices+text_padding)
             batch_triplet_indices.append(
                 numpy.pad(triplet_indices, ((0, max_len - len(text_indices) ), (0, max_len - len(text_indices) )),
                           'constant'))
@@ -66,6 +70,7 @@ class BucketIterator(object):
             batch_triplets.append(triplets)
             batch_targets.append(targets)
             batch_sentece_polarity.append(sentece_polarity)
+            batch_express_label.append(express_label)
 
         return {
             'text_indices': torch.tensor(batch_text_indices),
@@ -78,7 +83,9 @@ class BucketIterator(object):
             'op_spans': batch_op_spans,
             'triplets': batch_triplets,
             'targets': batch_targets,
-            'sentece_polarity':torch.tensor(batch_sentece_polarity)
+            'sentece_polarity':torch.tensor(batch_sentece_polarity),
+            'express_label':batch_express_label,
+            'express_indices':torch.tensor(batch_express_indices),
 
         }
 

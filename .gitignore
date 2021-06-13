@@ -5,3 +5,5 @@ log/
 state_dict/
 temp/model.bin
 hotelDatasets/
+.idea/
+input.txt

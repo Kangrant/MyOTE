@@ -59,6 +59,32 @@ def bieos2span(tags, tp='-AP'): # tp = '', '-AP', or '-OP'
                 beg,end = -1,-1
     return spans
 
+def bieos2span_express(tags): # tp = '', '-AP', or '-OP'
+
+    express_span = []
+    beg, end = -1, -1
+    pre_type = None
+    for i, label in enumerate(tags):
+        if label !='O':
+            tag,_,type = label.split('-')
+            if tag == 'S':
+                # start position and end position are kept same for the singleton
+                express_span.append((i, i))
+            elif tag == 'B':
+                beg = i
+                pre_type = type
+            elif tag == 'I' and pre_type!=type:
+                beg = -1
+                pre_type = None
+            elif tag == 'E' and pre_type == type:
+                end = i
+                if beg>-1 and end > beg:
+                    # only valid chunk is acceptable
+                    express_span.append((beg, end))
+                beg,end = -1,-1
+                pre_type = None
+    return express_span
+
 def find_span_with_end(pos, text, tags, tp='-AP'):
     if tags[pos] in ('B'+tp, 'O'+tp):
         span = [pos] * 2

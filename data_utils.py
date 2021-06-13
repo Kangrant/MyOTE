@@ -9,7 +9,8 @@ from transformers import BertTokenizer
 class ABSADataReader(object):
     def __init__(self, data_dir):
 
-        self.tag_map, self.reverse_tag_map, self.target_map, self.reverse_target_map = self._get_tag_map()
+        self.tag_map, self.reverse_tag_map, self.target_map, self.reverse_target_map ,\
+                                            self.express_map, self.reverse_express_map= self._get_tag_map()
         self.polarity_map = {'N': 0, 'NEU': 1, 'NEG': 2, 'POS': 3}  # NO_RELATION is 0
         self.reverse_polarity_map = {v: k for k, v in self.polarity_map.items()}
         self.data_dir = data_dir
@@ -35,7 +36,12 @@ class ABSADataReader(object):
                        '53', '54']
         target_map = {tag: i for i, tag in enumerate(target_list)}
         reverse_target_map = {i: tag for i, tag in enumerate(target_list)}
-        return tag_map, reverse_tag_map, target_map, reverse_target_map
+
+        express_list = ['O', 'B-exp-fac', 'I-exp-fac', 'E-exp-fac','B-exp-sug', 'I-exp-sug', 'E-exp-sug','B-exp-con', 'I-exp-con', 'E-exp-con','B-exp-rea', 'I-exp-rea','E-exp-rea','S-exp-fac','S-exp-sug','S-exp-con','S-exp-rea']
+        express_map = {express: i for i, express in enumerate(express_list)}
+        reverse_express_map = {i: express for i, express in enumerate(express_list)}
+
+        return tag_map, reverse_tag_map, target_map, reverse_target_map, express_map, reverse_express_map
 
     def _create_dataset(self, set_type, tokenizer):
         all_data = []
@@ -45,7 +51,7 @@ class ABSADataReader(object):
         lines = fp.readlines()
         fp.close()
 
-        for i in range(0, len(lines), 5):
+        for i in range(0, len(lines), 6):
             text = lines[i].strip()
             text = text.split(' ')
             # text = text.split(' ')
@@ -76,14 +82,40 @@ class ABSADataReader(object):
                 triplets.append((ap_beg, ap_end, op_beg, op_end, polarity))
 
             for target_pair in target_pairs:
-                beg,end,aspect,target_label = target_pair
+                beg, end, aspect, target_label = target_pair
                 target_tag = self.target_map[target_label]
                 target_indices[end][end] = target_tag
-                targets.append((beg,end,target_label))
-
+                targets.append((beg, end, target_label))
 
             ap_indices = [self.tag_map[tag] for tag in ap_tags]
             op_indices = [self.tag_map[tag] for tag in op_tags]
+
+            express_label = eval(lines[i+5].strip())
+            #express_label to span
+            express_span = []
+            beg, end = -1, -1
+            pre_type = None
+            for i, label in enumerate(express_label):
+                if label !='O':
+                    tag,_,type = label.split('-')
+                    if tag == 'S':
+                        # start position and end position are kept same for the singleton
+                        express_span.append((i, i))
+                    elif tag == 'B':
+                        beg = i
+                        pre_type = type
+                    elif tag == 'I' and pre_type!=type:
+                        beg = -1
+                        pre_type = None
+                    elif tag == 'E' and pre_type == type:
+                        end = i
+                        if beg>-1 and end > beg:
+                            # only valid chunk is acceptable
+                            express_span.append((beg, end))
+                        beg,end = -1,-1
+                        pre_type = None
+
+            express_indices = [self.express_map[tag] for tag in express_label]
             # data 格式
             data = {
                 'text_indices': text_indices,
@@ -95,9 +127,10 @@ class ABSADataReader(object):
                 'triplet_indices': triplet_indices,
                 'sentece_polarity': sentece_polarity_indices,
                 'target_indices': target_indices,
-                'targets': targets
+                'targets': targets,
+                'express_label':express_span,
+                'express_indices':express_indices,
             }
             all_data.append(data)
 
         return all_data
-

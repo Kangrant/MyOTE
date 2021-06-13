@@ -1,17 +1,13 @@
-# from transformers import BertTokenizer
-#
-import torch
-#
-# t = BertTokenizer.from_pretrained('bert-base-chinese')
-#
-# res = t.encode(['\U0001f92b', '景'],add_special_tokens=False,is_split_into_words=True)
-# print(res)
 
 
-# a = torch.tensor([[1.,2,3],[4,5,6],[7,8,9]])
-# b= a.mean(dim=1)
-# print(b)
-import numpy as np
-a = np.array([1,2,3,4])
-b= np.array([1,2,3,5])
-print(np.sum(a==b))
+fw_100 = open('input_100.txt','w',encoding='utf-8')
+
+
+
+with open('all_sentece.txt','r',encoding='utf-8') as  fr:
+    lines = fr.readlines()
+    for i in range(0,len(lines),2):
+        if (i<100):
+            fw_100.write(lines[i])
+fw_100.flush()
+fw_100.close()

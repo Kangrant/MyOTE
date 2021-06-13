@@ -27,9 +27,9 @@ class Instructor:
         #bert
         tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
 
-        self.idx2tag, self.idx2polarity,self.idx2target = absa_data_reader.reverse_tag_map, \
+        self.idx2tag, self.idx2polarity,self.idx2target ,self.idx2express= absa_data_reader.reverse_tag_map, \
                                           absa_data_reader.reverse_polarity_map,\
-                                          absa_data_reader.reverse_target_map
+                                          absa_data_reader.reverse_target_map,absa_data_reader.reverse_express_map
 
         self.train_data_loader = BucketIterator(data=absa_data_reader.get_train(tokenizer),
                                                 batch_size=opt.batch_size,
@@ -42,7 +42,8 @@ class Instructor:
                                      opt=opt,
                                      idx2tag=self.idx2tag,
                                      idx2polarity=self.idx2polarity,
-                                     idx2target = self.idx2target
+                                     idx2target = self.idx2target,
+                                     idx2express=self.idx2express
                                      ).to(opt.device)
         self._print_args()
 
@@ -106,18 +107,19 @@ class Instructor:
                 if global_step % self.opt.log_step == 0:
 
 
-                    dev_ap_metrics, dev_op_metrics, dev_triplet_metrics, dev_senPolarity_metrics,dev_target_metrics = self._evaluate(self.dev_data_loader)
+                    dev_ap_metrics, dev_op_metrics, dev_triplet_metrics, dev_senPolarity_metrics,dev_target_metrics,dev_express_metrics = self._evaluate(self.dev_data_loader)
 
                     dev_ap_precision, dev_ap_recall, dev_ap_f1 = dev_ap_metrics
                     dev_op_precision, dev_op_recall, dev_op_f1 = dev_op_metrics
                     dev_triplet_precision, dev_triplet_recall, dev_triplet_f1 = dev_triplet_metrics
                     dev_target_precision, dev_target_recall, dev_target_f1 = dev_target_metrics
+                    dev_express_precision, dev_express_recall, dev_express_f1 = dev_express_metrics
                     # dev_RE_precision, dev_RE_recall, dev_RE_f1 = dev_RE_metrics
                     print('dev_ap_precision: {:.4f}, dev_ap_recall: {:.4f}, dev_ap_f1: {:.4f}'.format(dev_ap_precision, dev_ap_recall, dev_ap_f1))
                     print('dev_op_precision: {:.4f}, dev_op_recall: {:.4f}, dev_op_f1: {:.4f}'.format(dev_op_precision, dev_op_recall, dev_op_f1))
                     print('dev_triplet_precision: {:.4f}, dev_triplet_recall: {:.4f}, dev_triplet_f1: {:.4f}'.format( dev_triplet_precision, dev_triplet_recall, dev_triplet_f1))
                     print('dev_target_precision: {:.4f}, dev_target_recall: {:.4f}, dev_target_f1: {:.4f}'.format( dev_target_precision, dev_target_recall, dev_target_f1))
-                    # print('dev_RE_precision: {:.4f}, dev_RE_recall: {:.4f}, dev_RE_f1: {:.4f}'.format( dev_RE_precision, dev_RE_recall, dev_RE_f1))
+                    print('dev_express_precision: {:.4f}, dev_express_recall: {:.4f}, dev_express_f1: {:.4f}'.format( dev_express_precision, dev_express_recall, dev_express_f1))
                     print('dev_senPolarity_acc: {:.4f}'.format(dev_senPolarity_metrics))
                     if dev_triplet_f1 > max_dev_f1:
                         increase_flag = True
@@ -149,14 +151,14 @@ class Instructor:
         with torch.no_grad():
             for t_batch, t_sample_batched in enumerate(data_loader):
                 t_inputs = [t_sample_batched[col].to(self.opt.device) for col in self.opt.input_cols]
-                t_ap_spans, t_op_spans, t_triplets, t_senPolarity ,t_target= [t_sample_batched[col] for col in self.opt.eval_cols]
+                t_ap_spans, t_op_spans, t_triplets, t_senPolarity ,t_target,t_express= [t_sample_batched[col] for col in self.opt.eval_cols]
                 t_senPolarity = t_senPolarity.cpu().numpy().tolist()
                 start_time = time.time()
                 with autocast():
                     dev_outpus = self.model(t_inputs)
                 model_time = time.time()-start_time
                 #t_ap_spans_pred, t_op_spans_pred, t_triplets_pred = self.model.inference(t_inputs)
-                t_ap_spans_pred, t_op_spans_pred, t_triplets_pred, t_senPolarity_pred,t_target_pred= self.model.inference(dev_outpus,t_inputs[0],t_inputs[1])
+                t_ap_spans_pred, t_op_spans_pred, t_triplets_pred, t_senPolarity_pred,t_target_pred ,t_express_pred= self.model.inference(dev_outpus,t_inputs[0],t_inputs[1])
                 t_senPolarity_pred = t_senPolarity_pred.cpu().numpy().tolist()
                 infer_time = time.time()-start_time
 
@@ -168,30 +170,35 @@ class Instructor:
                     t_triplets_all = t_triplets
                     t_target_all = t_target
                     t_senPolarity_all = t_senPolarity
+                    t_express_all = t_express
 
                     t_ap_spans_pred_all = t_ap_spans_pred
                     t_op_spans_pred_all = t_op_spans_pred
                     t_triplets_pred_all = t_triplets_pred
                     t_target_pred_all = t_target_pred
                     t_senPolarity_pred_all = t_senPolarity_pred
+                    t_express_pred_all = t_express_pred
                 else:
                     t_ap_spans_all = t_ap_spans_all + t_ap_spans
                     t_op_spans_all = t_op_spans_all + t_op_spans
                     t_triplets_all = t_triplets_all + t_triplets
                     t_target_all = t_target_all + t_target
                     t_senPolarity_all = t_senPolarity_all + t_senPolarity
+                    t_express_all = t_express_all + t_express
 
                     t_ap_spans_pred_all = t_ap_spans_pred_all + t_ap_spans_pred
                     t_op_spans_pred_all = t_op_spans_pred_all + t_op_spans_pred
                     t_triplets_pred_all = t_triplets_pred_all + t_triplets_pred
                     t_target_pred_all = t_target_pred_all + t_target_pred
                     t_senPolarity_pred_all = t_senPolarity_pred_all + t_senPolarity_pred
-        
+                    t_express_pred_all = t_express_pred_all + t_express_pred
+
         return self._metrics(t_ap_spans_all, t_ap_spans_pred_all), \
                self._metrics(t_op_spans_all, t_op_spans_pred_all), \
                self._metrics(t_triplets_all, t_triplets_pred_all), \
                self._metrics_senPolarity(t_senPolarity_all,t_senPolarity_pred_all), \
-               self._metrics(t_target_all, t_target_pred_all)
+               self._metrics(t_target_all, t_target_pred_all),\
+               self._metrics(t_express_all,t_express_pred_all)
 
     @staticmethod
     def _metrics(targets, outputs):
@@ -343,7 +350,7 @@ if __name__ == '__main__':
     target_colses = {
         'cmla': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask'],
         'hast': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask'],
-        'ote': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask','sentece_polarity','target_indices'],
+        'ote': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask','sentece_polarity','target_indices','express_indices'],
     }
     initializers = {
         'xavier_uniform_': torch.nn.init.xavier_uniform_,
@@ -361,7 +368,7 @@ if __name__ == '__main__':
     opt.model_class = model_classes[opt.model]
     opt.input_cols = input_colses[opt.model]
     opt.target_cols = target_colses[opt.model]
-    opt.eval_cols = ['ap_spans', 'op_spans', 'triplets','sentece_polarity','targets']
+    opt.eval_cols = ['ap_spans', 'op_spans', 'triplets','sentece_polarity','targets','express_label']
     opt.initializer = initializers[opt.initializer]
     opt.data_dir = data_dirs[opt.dataset]
     opt.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') \
