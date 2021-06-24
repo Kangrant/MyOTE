@@ -61,6 +61,7 @@ def bieos2span_express(tags): # tp = '', '-AP', or '-OP'
                     express_span.append((beg, end))
                 beg,end = -1,-1
                 pre_type = None
+
     return express_span
 
 def find_span_with_end(pos, text, tags, tp='-AP'):

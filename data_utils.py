@@ -65,6 +65,7 @@ class ABSADataReader(object):
                 text = text.split(' ')
                 text_indices = tokenizer.encode(text, add_special_tokens=False, is_split_into_words=True)
             else:
+                text = ''.join(text.split(' '))
                 text_indices = tokenizer.text_to_sequence(text)
             seq_len = len(text_indices)
             # ap_spans = []
@@ -204,7 +205,7 @@ class Tokenizer(object):
         将text转换为id表示
         """
         # text = text.lower()
-        words = text.split()
+        words = list(text)
         unknownidx = 1
         sequence = [self.word2idx[w] if w in self.word2idx else unknownidx for w in words]
         if len(sequence) == 0:

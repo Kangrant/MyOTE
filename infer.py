@@ -6,8 +6,8 @@ import torch
 import torch.nn.functional as F
 import argparse
 from bucket_iterator import BucketIterator
-from data_utils import ABSADataReader
-from models import CMLA, HAST, OTE
+from data_utils import ABSADataReader,build_tokenizer,build_embedding_matrix
+from models import  OTE
 from transformers import BertTokenizer
 
 
@@ -17,16 +17,27 @@ class Inferer:
     def __init__(self, opt):
         self.opt = opt
 
-        absa_data_reader = ABSADataReader(data_dir=opt.data_dir)
-        self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
-        self.idx2tag, self.idx2polarity,self.idx2target = absa_data_reader.reverse_tag_map, \
+        absa_data_reader = ABSADataReader(data_dir=opt.data_dir,opt=opt)
+
+        if opt.useBert:
+            #bert
+            self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+            embedding_matrix = []
+        else:
+            self.tokenizer = build_tokenizer(data_dir=opt.data_dir)
+            embedding_matrix = build_embedding_matrix(opt.data_dir, self.tokenizer.word2idx, opt.embed_dim, opt.dataset)
+
+
+        self.idx2tag, self.idx2polarity,self.idx2target ,self.id2express= absa_data_reader.reverse_tag_map, \
                                                           absa_data_reader.reverse_polarity_map, \
-                                                          absa_data_reader.reverse_target_map
-        self.model = opt.model_class(
-                                    opt=opt,
-                                    idx2tag=self.idx2tag,
-                                    idx2polarity=self.idx2polarity,
-                                    idx2target = self.idx2target
+                                                          absa_data_reader.reverse_target_map,absa_data_reader.reverse_express_map
+
+        self.model = opt.model_class(embedding_matrix=embedding_matrix,
+                                     opt=opt,
+                                     idx2tag=self.idx2tag,
+                                     idx2polarity=self.idx2polarity,
+                                     idx2target = self.idx2target,
+                                     idx2express=self.id2express
                                     ).to(opt.device)
         print('loading model {0} ...'.format(opt.model_name))
         self.model.load_state_dict(torch.load(opt.state_dict_path, map_location=lambda storage, loc: storage))
@@ -34,12 +45,30 @@ class Inferer:
         self.model.eval()
         torch.autograd.set_grad_enabled(False)
 
-    def evaluate(self, text):
+    def evaluate(self, text, opt):
         # text_indices = self.tokenizer.encode(text,add_special_tokens=False)
         # text_mask = [1] * len(text_indices)
-        out = self.tokenizer(text, add_special_tokens=False, padding=True)
-        text_indices = out['input_ids']
-        text_mask = out['attention_mask']
+        if opt.useBert:
+            out = self.tokenizer(text, add_special_tokens=False, padding=True)
+            text_indices = out['input_ids']
+            text_mask = out['attention_mask']
+        else:
+            for batch_text in text:
+                text_indices = []
+                text_mask = []
+                if isinstance(batch_text,str):#一句话
+                    text_indices.append(self.tokenizer.text_to_sequence(batch_text))
+                    text_mask.append([1] * len(text_indices))
+                elif isinstance(batch_text,list):
+
+                    max_len = len(max(batch_text,key=len))
+                    for t in batch_text:
+                        t_indices = self.tokenizer.text_to_sequence(t)
+                        text_indices.append(t_indices)
+                        text_padding = [0] * (max_len - len(t))
+                        text_mask.append(t_indices+text_padding)
+
+
 
         t_sample_batched = {
             'text_indices': torch.tensor(text_indices),
@@ -47,57 +76,54 @@ class Inferer:
         }
         with torch.no_grad():
             t_inputs = [t_sample_batched[col].to(self.opt.device) for col in self.opt.input_cols]
-            infer_outpus = self.model(t_inputs)
-            t_ap_spans_pred, t_op_spans_pred, t_triplets_pred, t_senPolarity_pred,t_target_pred = self.model.inference(infer_outpus,
+            infer_outpus = self.model(t_inputs,opt)
+            t_ap_spans_pred, t_op_spans_pred, t_triplets_pred, t_senPolarity_pred,t_target_pred ,t_express_pred= self.model.inference(infer_outpus,
                                                                                                          t_inputs[0],
                                                                                                          t_inputs[1])
         t_senPolarity_pred = t_senPolarity_pred.cpu().numpy().tolist()
 
-        return [t_ap_spans_pred, t_op_spans_pred, t_triplets_pred, t_senPolarity_pred,t_target_pred]
+        return [t_ap_spans_pred, t_op_spans_pred, t_triplets_pred, t_senPolarity_pred,t_target_pred,t_express_pred]
 
 
-def get_text(input_path):
-    text = []
-    f_text = open(input_path, 'r', encoding='utf-8')
-    lines = f_text.readlines()
-    for line in lines:
-        text.append(line.strip())
-    f_text.close()
-    return text
 
 
 if __name__ == '__main__':
-    dataset = 'hotel'
+    dataset = 'test'
+
     # set your trained models here
     model_state_dict_paths = {
         #'ote': 'state_dict/ote_' + dataset + '.pkl',
-        'ote': 'state_dict/ote_' + 'test' + '.pkl',
+        'ote_Bert': 'state_dict/ote_Bert_' + 'test' + '.pkl',
+        'ote_LSTM': 'state_dict/ote_LSTM_' + 'test' + '.pkl',
     }
     model_classes = {
-        'ote': OTE,
+        'ote_Bert': OTE,
+        'ote_LSTM': OTE,
     }
     input_colses = {
-        'ote': ['text_indices', 'text_mask'],
+        'ote_Bert': ['text_indices', 'text_mask'],
+        'ote_LSTM': ['text_indices', 'text_mask'],
     }
     target_colses = {
-        'ote': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask', 'sentece_polarity','target_indices'],
+        'ote_Bert': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask', 'sentece_polarity','target_indices'],
+        'ote_LSTM': ['ap_indices', 'op_indices', 'triplet_indices', 'text_mask', 'sentece_polarity','target_indices'],
     }
     data_dirs = {
-        'laptop14': 'datasets/14lap',
-        'rest14': 'datasets/14rest',
-        'rest15': 'datasets/15rest',
-        'rest16': 'datasets/16rest',
-        'hotel': 'hotelDatasets/hotel'
+        'hotel': 'hotelDatasets/hotel',
+        'test': 'hotelDatasets/test'
     }
 
 
     class Option(object):
         pass
 
-
     opt = Option()
+    opt.useBert = False
     opt.dataset = dataset
-    opt.model_name = 'ote'
+    if opt.useBert:
+        opt.model_name = 'ote_Bert'
+    else:
+        opt.model_name = 'ote_LSTM'
     opt.eval_cols = ['ap_spans', 'op_spans', 'triplets', 'sentece_polarity','targets']
     opt.model_class = model_classes[opt.model_name]
     opt.input_cols = input_colses[opt.model_name]
@@ -115,8 +141,8 @@ if __name__ == '__main__':
     polarity_map = {0: 'N', 1: 'NEU', 2: 'NEG', 3: 'POS'}
 
 
-    text = ['朋友一行合肥打球,选择这家酒店,房间干净整洁,前台小妹妹很热情,退房时因天气热,还送了瓶水给我,感觉很好,下次有机会去,还会住这家酒店']
-    pred_out = inf.evaluate(text)
+    text = ['酒店距离中南商圈很近']
+    pred_out = inf.evaluate(text,opt)
 
     print()
 

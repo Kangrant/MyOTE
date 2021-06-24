@@ -64,9 +64,20 @@ class Instructor:
         for arg in vars(self.opt):
             print('>>> {0}: {1}'.format(arg, getattr(self.opt, arg)))
 
-    def _train(self, optimizer):
-        # if os.path.exists("./temp/model.bin"):
-        #     torch.load()
+    def _train(self):
+
+        if not os.path.exists('state_dict/'):
+            os.mkdir('state_dict/')
+
+        # self._reset_params()
+        _params = filter(lambda p: p.requires_grad, self.model.parameters())
+
+        optimizer = torch.optim.Adam(_params, lr=self.opt.learning_rate, weight_decay=self.opt.l2reg)
+        #自动调整学习率
+        decay, decay_step = self.opt.decay, self.opt.decay_steps
+        l = lambda epoch: decay ** (epoch // decay_step)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=l)
+
         scaler = GradScaler()#自动混合精度
         print("**************  Start trainging **************")
         max_dev_f1 = 0.0
@@ -81,7 +92,7 @@ class Instructor:
             for i_batch, sample_batched in enumerate(self.train_data_loader):
                 start_time = time.time()
                 global_step += 1
-
+                scheduler.step()
                 # switch model to training mode, clear gradient accumulators
                 self.model.train()
 
@@ -99,11 +110,10 @@ class Instructor:
 
                 optimizer.zero_grad()
                 end_time = time.time()
-                #optimizer.step()
                 print("epoch:%d, batch:%d,time:%.2f, loss:%.3f" % (epoch+1,i_batch,end_time-start_time,loss.item()))
                 if global_step % self.opt.log_step == 0:
 
-
+                    nn.utils.clip_grad_norm_(_params,max_norm=opt.clip)
                     dev_ap_metrics, dev_op_metrics, dev_triplet_metrics, dev_senPolarity_metrics,dev_target_metrics,dev_express_metrics = self._evaluate(self.dev_data_loader)
 
                     dev_ap_precision, dev_ap_recall, dev_ap_f1 = dev_ap_metrics
@@ -120,9 +130,12 @@ class Instructor:
                     print('dev_senPolarity_acc: {:.4f}'.format(dev_senPolarity_metrics))
                     if dev_triplet_f1 > max_dev_f1:
                         increase_flag = True
-                        print("history:%.4f, current:%.4f "%(max_dev_f1,dev_triplet_f1))
+                        print("history:%.4f, current:%.4f " % (max_dev_f1, dev_triplet_f1))
                         max_dev_f1 = dev_triplet_f1
-                        best_state_dict_path = 'state_dict/'+self.opt.model+'_'+self.opt.dataset+'.pkl'
+                        if self.opt.useBert:
+                            best_state_dict_path = 'state_dict/'+'ote_Bert'+'_'+self.opt.dataset+'.pkl'
+                        else:
+                            best_state_dict_path = 'state_dict/'+'ote_LSTM'+'_'+self.opt.dataset+'.pkl'
                         torch.save(self.model.state_dict(), best_state_dict_path)
                         print('>>> best model saved.')
 
@@ -188,24 +201,23 @@ class Instructor:
 
 
 
-    def run(self):
-        if not os.path.exists('state_dict/'):
-            os.mkdir('state_dict/')
-
-        # self._reset_params()
-        _params = filter(lambda p: p.requires_grad, self.model.parameters())
-
-        optimizer = torch.optim.Adam(_params, lr=self.opt.learning_rate, weight_decay=self.opt.l2reg)
-        #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=l)
-
-        self._train(optimizer)
+    # def run(self):
+    #     if not os.path.exists('state_dict/'):
+    #         os.mkdir('state_dict/')
+    #
+    #     # self._reset_params()
+    #     _params = filter(lambda p: p.requires_grad, self.model.parameters())
+    #
+    #     optimizer = torch.optim.Adam(_params, lr=self.opt.learning_rate, weight_decay=self.opt.l2reg)
+    #     #scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=l)
+    #
+    #     self._train(optimizer)
 
 
 
 if __name__ == '__main__':
     # Hyper Parameters
     parser = argparse.ArgumentParser()
-    parser.add_argument('--v2', action='store_true')
     parser.add_argument('--model', default='ote', type=str)
     parser.add_argument('--useBert', default=False, type=bool,help='if Fasle , will ues LSTM')
     parser.add_argument('--dataset', default='hotel', type=str, help='hotel,test')
@@ -220,6 +232,9 @@ if __name__ == '__main__':
     parser.add_argument('--polarities_dim', default=4, type=int)
     parser.add_argument('--seed', default=776, type=int)
     parser.add_argument('--device', default=None, type=str)
+    parser.add_argument('--clip', default=5.0, type=float)
+    parser.add_argument('--decay', default=0.75, type=float)
+    parser.add_argument('--decay_steps', default=50, type=float)
     opt = parser.parse_args()
 
     model_classes = {
@@ -253,4 +268,5 @@ if __name__ == '__main__':
         torch.backends.cudnn.benchmark = False
 
     ins = Instructor(opt)
-    ins.run()
+    # ins.run()
+    ins._train()
