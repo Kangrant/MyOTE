@@ -22,7 +22,7 @@ class Inferer:
         if opt.useBert:
             #bert
             self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
-            embedding_matrix = []
+            embedding_matrix = torch.tensor([])
         else:
             self.tokenizer = build_tokenizer(data_dir=opt.data_dir)
             embedding_matrix = build_embedding_matrix(opt.data_dir, self.tokenizer.word2idx, opt.embed_dim, opt.dataset)

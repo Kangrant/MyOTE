@@ -57,7 +57,7 @@ class OTE(nn.Module):
         self.idx2target = idx2target
         self.target_dim = len(self.idx2target)
         self.express_dim = len(self.idx2express)
-        if embedding_matrix.size!=0:
+        if embedding_matrix.shape[0]!=0:
             self.embed = nn.Embedding.from_pretrained(torch.tensor(embedding_matrix, dtype=torch.float))
             self.embed_dropout = nn.Dropout(0.5)
             self.lstm = DynamicRNN(opt.embed_dim, opt.hidden_dim, batch_first=True, bidirectional=True)

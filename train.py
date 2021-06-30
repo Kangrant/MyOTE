@@ -24,7 +24,7 @@ class Instructor:
         if opt.useBert:
             #bert
             tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
-            embedding_matrix = []
+            embedding_matrix = torch.tensor([])
         else:
             tokenizer = build_tokenizer(data_dir=opt.data_dir)
             embedding_matrix = build_embedding_matrix(opt.data_dir, tokenizer.word2idx, opt.embed_dim, opt.dataset)
