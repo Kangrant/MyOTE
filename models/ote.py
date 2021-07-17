@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import time
 import numpy as np
 import torch
 import torch.nn as nn
@@ -57,7 +58,15 @@ class OTE(nn.Module):
         self.idx2target = idx2target
         self.target_dim = len(self.idx2target)
         self.express_dim = len(self.idx2express)
-        if embedding_matrix.shape[0]!=0:
+        if embedding_matrix == torch.tensor([0]):
+            self.config = BertConfig.from_pretrained('./bert-base-chinese')
+            self.bert = BertModel.from_pretrained('./bert-base-chinese', config=self.config, add_pooling_layer=False)
+
+            self.ap_fc = nn.Linear(self.config.hidden_size, 200)
+            self.op_fc = nn.Linear(self.config.hidden_size, 200)
+            self.express_fc = nn.Linear(self.config.hidden_size,200)
+            self.sen_polarity_fc = nn.Linear(self.config.hidden_size,opt.polarities_dim)
+        else:
             self.embed = nn.Embedding.from_pretrained(torch.tensor(embedding_matrix, dtype=torch.float))
             self.embed_dropout = nn.Dropout(0.5)
             self.lstm = DynamicRNN(opt.embed_dim, opt.hidden_dim, batch_first=True, bidirectional=True)
@@ -66,14 +75,7 @@ class OTE(nn.Module):
             self.op_fc = nn.Linear(2 * opt.hidden_dim, 200)
             self.express_fc = nn.Linear(2 * opt.hidden_dim,200)
             self.sen_polarity_fc = nn.Linear(2 * opt.hidden_dim,opt.polarities_dim)
-        else:
-            self.config = BertConfig.from_pretrained('./bert-base-chinese')
-            self.bert = BertModel.from_pretrained('./bert-base-chinese', config=self.config, add_pooling_layer=False)
 
-            self.ap_fc = nn.Linear(self.config.hidden_size, 200)
-            self.op_fc = nn.Linear(self.config.hidden_size, 200)
-            self.express_fc = nn.Linear(self.config.hidden_size,200)
-            self.sen_polarity_fc = nn.Linear(self.config.hidden_size,opt.polarities_dim)
 
         self.triplet_biaffine = Biaffine(opt, 100, 100, opt.polarities_dim, bias=(True, False))
         self.target_biaffine = Biaffine(opt, 100, 100, self.target_dim, bias=(True, False))
@@ -152,20 +154,36 @@ class OTE(nn.Module):
         ap_tags = [[] for _ in range(batch_size)]
         op_tags = [[] for _ in range(batch_size)]
         express_tags = [[] for _ in range(batch_size)]
-        for b in range(batch_size):
-            for i in range(text_len[b]):
-                ap_tags[b].append(ap_out[b, i, :].argmax(0).item())
-        for b in range(batch_size):
-            for i in range(text_len[b]):
-                op_tags[b].append(op_out[b, i, :].argmax(0).item())
-        for b in range(batch_size):
-            for i in range(text_len[b]):
-                express_tags[b].append(express_out[b, i, :].argmax(0).item())
+        start_time = time.time()
+        # for b in range(batch_size):
+        #     for i in range(text_len[b]):
+        #         ap_tags[b].append(ap_out[b, i, :].argmax(0).item())
+        #         # op_tags[b].append(op_out[b, i, :].argmax(0).item())
+        #         # express_tags[b].append(express_out[b, i, :].argmax(0).item())
+        ap_tags = torch.argmax(ap_out, dim=2).cpu().numpy().tolist()
+        op_tags = torch.argmax(op_out, dim=2).cpu().numpy().tolist()
+        express_tags = torch.argmax(express_out, dim=2).cpu().numpy().tolist()
+        for idx, (sent_a, sent_o, sent_e) in enumerate(zip(ap_tags, op_tags, express_tags)):
+            ap_tags[idx] = sent_a[: text_len[idx]]
+            op_tags[idx] = sent_o[: text_len[idx]]
+            express_tags[idx] = sent_e[: text_len[idx]]            
+        # temp_true = torch.argmax(ap_out, dim=2, keepdim=True)
+        # for b in range(batch_size):
+        #     for i in range(text_len[b]):
+        #         op_tags[b].append(op_out[b, i, :].argmax(0).item())
+        # for b in range(batch_size):
+        #     for i in range(text_len[b]):
+        #         express_tags[b].append(express_out[b, i, :].argmax(0).item())
+
 
         text_indices = text_indices.cpu().numpy().tolist()
+
+        start_time = time.time()
         ap_spans = self.aspect_decode(text_indices, ap_tags, self.idx2tag)
         op_spans = self.opinion_decode(text_indices, op_tags, self.idx2tag)
         express_spans = self.express_decode(text_indices,express_tags,self.idx2express)
+        end_time = time.time()
+
 
         mat_mask = (text_mask.unsqueeze(2) * text_mask.unsqueeze(1)).unsqueeze(3).expand(
             -1, -1, -1, self.opt.polarities_dim)  # batch x seq x seq x polarity
@@ -173,7 +191,7 @@ class OTE(nn.Module):
         mat_mask_target = (text_mask.unsqueeze(2) * text_mask.unsqueeze(1)).unsqueeze(3).expand(
             -1, -1, -1, self.target_dim)
 
-        #triplet_indices->[batch,max_seq_len,max_seq_len,tag_dim]
+        # triplet_indices->[batch,max_seq_len,max_seq_len,tag_dim]
         triplet_indices = torch.zeros_like(triplet_out).to(self.opt.device)
         triplet_indices = triplet_indices.scatter_(3, triplet_out.argmax(dim=3, keepdim=True), 1) * mat_mask.float()
         triplet_indices = torch.nonzero(triplet_indices).cpu().numpy().tolist()

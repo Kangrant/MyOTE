@@ -24,7 +24,7 @@ class Instructor:
         if opt.useBert:
             #bert
             tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
-            embedding_matrix = torch.tensor([])
+            embedding_matrix = torch.tensor([0])
         else:
             tokenizer = build_tokenizer(data_dir=opt.data_dir)
             embedding_matrix = build_embedding_matrix(opt.data_dir, tokenizer.word2idx, opt.embed_dim, opt.dataset)
@@ -64,12 +64,20 @@ class Instructor:
         for arg in vars(self.opt):
             print('>>> {0}: {1}'.format(arg, getattr(self.opt, arg)))
 
-    def _train(self):
+    def _reset_params(self):
+        for p in self.model.parameters():
+            if p.requires_grad:
+                if len(p.shape) > 1:
+                    torch.nn.init.xavier_uniform_(p)
+                else:
+                    stdv = 1. / math.sqrt(p.shape[0])
+                    torch.nn.init.uniform_(p, a=-stdv, b=stdv) #均匀分布 U(a,b)
 
+    def _train(self):
         if not os.path.exists('state_dict/'):
             os.mkdir('state_dict/')
 
-        # self._reset_params()
+        self._reset_params()
         _params = filter(lambda p: p.requires_grad, self.model.parameters())
 
         optimizer = torch.optim.Adam(_params, lr=self.opt.learning_rate, weight_decay=self.opt.l2reg)
@@ -85,7 +93,7 @@ class Instructor:
         global_step = 0
         continue_not_increase = 0
         for epoch in range(self.opt.num_epoch):
-
+            print("第%d个epoch的学习率：%f" % (epoch, optimizer.param_groups[0]['lr']))
             print('>' * 100)
             print('epoch: {0}'.format(epoch+1))
             increase_flag = False
@@ -234,7 +242,8 @@ if __name__ == '__main__':
     parser.add_argument('--device', default=None, type=str)
     parser.add_argument('--clip', default=5.0, type=float)
     parser.add_argument('--decay', default=0.75, type=float)
-    parser.add_argument('--decay_steps', default=50, type=float)
+    parser.add_argument('--decay_steps', default=500, type=float)
+    parser.add_argument('--initializer', default='xavier_uniform_', type=str)
     opt = parser.parse_args()
 
     model_classes = {

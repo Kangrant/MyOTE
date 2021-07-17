@@ -6,7 +6,7 @@ import torch.nn as nn
 import numpy as np
 
 class DynamicRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers=1, bias=True, batch_first=True, dropout=0,
+    def __init__(self, input_size, hidden_size, num_layers=2, bias=True, batch_first=True, dropout=0.5,
                  bidirectional=False, only_use_last_hidden_state=False, rnn_type='LSTM'):
         """
         RNN which can hold variable length sequence, use like TensorFlow's RNN(input, length...).

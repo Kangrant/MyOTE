@@ -22,7 +22,7 @@ class Inferer:
         if opt.useBert:
             #bert
             self.tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
-            embedding_matrix = torch.tensor([])
+            embedding_matrix = torch.tensor([0])
         else:
             self.tokenizer = build_tokenizer(data_dir=opt.data_dir)
             embedding_matrix = build_embedding_matrix(opt.data_dir, self.tokenizer.word2idx, opt.embed_dim, opt.dataset)
@@ -88,13 +88,14 @@ class Inferer:
 
 
 if __name__ == '__main__':
-    dataset = 'test'
+    dataset = 'hotel'
 
     # set your trained models here
     model_state_dict_paths = {
         #'ote': 'state_dict/ote_' + dataset + '.pkl',
-        'ote_Bert': 'state_dict/ote_Bert_' + 'test' + '.pkl',
-        'ote_LSTM': 'state_dict/ote_LSTM_' + 'test' + '.pkl',
+        'ote_Bert': 'state_dict/ote_Bert_' + 'hotel' + '.pkl',
+        # 'ote_LSTM': 'state_dict/ote_LSTM_' + 'test' + '.pkl',
+        'ote_LSTM': 'state_dict/ote_LSTM_' + 'hotel' + '.pkl',
     }
     model_classes = {
         'ote_Bert': OTE,
@@ -141,7 +142,7 @@ if __name__ == '__main__':
     polarity_map = {0: 'N', 1: 'NEU', 2: 'NEG', 3: 'POS'}
 
 
-    text = ['酒店距离中南商圈很近']
+    text = ['早餐很好']
     pred_out = inf.evaluate(text,opt)
 
     print()
